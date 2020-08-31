@@ -8,3 +8,8 @@ edition = "2018"
 
 [dependencies]
 cookie-factory = "0.3.1"
+nom = "5"
+enumset = "1.0.1"
+
+block-modes = "0.6.1"
+aes = "0.5.0"
