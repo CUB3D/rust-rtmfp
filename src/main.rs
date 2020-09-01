@@ -37,33 +37,138 @@ pub enum ChunkType {
     Padding2 = 0xff,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub enum RTMFPOption {
+    Marker,
+    Option {
+        length: VLU,
+        type_: VLU,
+        value: Vec<u8>,
+    },
+}
+
+impl RTMFPOption {
+    pub fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
+        let (i, length) = VLU::decode(i)?;
+
+        println!("length = {}", length.value);
+
+        if length.value == 0 {
+            Ok((i, RTMFPOption::Marker))
+        } else {
+            let (i, type_) = VLU::decode(i)?;
+            let (i, value) = nom::bytes::complete::take(length.value - type_.length as u64)(i)?;
+            Ok((
+                i,
+                RTMFPOption::Option {
+                    length,
+                    type_,
+                    value: value.to_vec(),
+                },
+            ))
+        }
+    }
+
+        fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
+            move |out| match self {
+                RTMFPOption::Marker => VLU::from(0).encode()(out),
+                RTMFPOption::Option {
+                    value,
+                    type_,
+                    length,
+                } => {
+                    tuple((
+                        length.encode(),
+                        type_.encode(),
+                        encode_raw(value)
+                    ))(out)
+                }
+            }
+        }
+
+        pub fn is_marker(&self) -> bool {
+        matches!(self, RTMFPOption::Marker)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FlashCertificate {
+    pub cannonical: Vec<RTMFPOption>,
+    pub remainder: Vec<RTMFPOption>,
+}
+
+impl FlashCertificate {
+    pub fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
+        let mut cannonical = vec![];
+
+        let mut i = i;
+        loop {
+            let val = RTMFPOption::decode(i);
+
+            match val {
+                Ok((j, c)) => {
+                    println!("Got c: {:?}", c);
+                    i = j;
+                    if c.is_marker() {
+                        break;
+                    }
+                    cannonical.push(c);
+                }
+                Err(e) => {
+                    break;
+                }
+            }
+        }
+
+        println!("Got cannonical part: {:?}", cannonical);
+
+        let (i, remainder) = nom::multi::many0(RTMFPOption::decode)(i)?;
+
+        Ok((
+            i,
+            Self {
+                cannonical,
+                remainder,
+            },
+        ))
+    }
+
+    fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
+        all(self.cannonical.iter().map(|c| c.encode()))
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct VLU {
     pub length: u8,
     pub value: u64,
 }
 
 impl VLU {
-    fn from(d: &[u8]) -> Self {
+    fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
         let mut value: u64 = 0;
         let mut pos = 0;
 
+        let mut i = i;
         loop {
-            let v = d[pos];
+            let (j, v) = nom::number::complete::be_u8(i)?;
+            i = j;
 
             value *= 128;
             value += (v & 0b01111111) as u64;
+            pos += 1;
 
-            if v & 0b10000000 == 0b10000000 {
+            if v & 0b10000000 == 0 {
                 break;
             }
-            pos += 1;
         }
 
-        Self {
+        let vlu = Self {
             length: pos as u8,
             value,
-        }
+        };
+
+        Ok((i, vlu))
     }
 
     fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
@@ -86,7 +191,7 @@ pub struct IIKeyingChunkBody {
     pub cookie_length: VLU,
     pub cookie_echo: Vec<u8>,
     pub cert_length: VLU,
-    pub initiator_certificate: Vec<u8>,
+    pub initiator_certificate: FlashCertificate,
     pub skic_length: VLU,
     pub session_key_initiator_component: Vec<u8>,
     pub signature: Vec<u8>,
@@ -99,7 +204,8 @@ impl IIKeyingChunkBody {
             self.cookie_length.encode(),
             encode_raw(&self.cookie_echo),
             self.cert_length.encode(),
-            encode_raw(&self.initiator_certificate),
+            //TODO: compute above length
+            self.initiator_certificate.encode(),
             self.skic_length.encode(),
             encode_raw(&self.session_key_initiator_component),
             encode_raw(&self.signature),
@@ -113,7 +219,7 @@ pub struct RHelloChunkBody {
     pub tag_echo: Vec<u8>,
     pub cookie_length: u8,
     pub cookie: Vec<u8>,
-    pub responder_certificate: Vec<u8>,
+    pub responder_certificate: FlashCertificate,
 }
 
 #[derive(Debug)]
@@ -140,7 +246,7 @@ impl ChunkContent {
     fn get_rhello(&self) -> Option<RHelloChunkBody> {
         match self {
             ChunkContent::RHello(body) => Some(body.clone()),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -178,8 +284,13 @@ impl Chunk {
             let (j, cookie_length) = nom::number::complete::be_u8(j)?;
             let (j, cookie) = nom::bytes::complete::take(cookie_length)(j)?;
 
-            let cert_len = chunk_length - tag_length as u16 - cookie_length as u16 - 1 - 1;
-            let (j, certificate) = nom::bytes::complete::take(cert_len)(j)?;
+            let cert_len =
+                (chunk_length - tag_length as u16 - cookie_length as u16 - 1 - 1) as usize;
+            // let (j, certificate) = nom::bytes::complete::take(cert_len)(j)?;
+
+            let cropped = &j[..cert_len];
+            let (cropped_rem, certificate) = FlashCertificate::decode(cropped)?;
+            let j = &j[cert_len..];
 
             i = j;
 
@@ -193,7 +304,7 @@ impl Chunk {
                         tag_echo: tag_echo.to_vec(),
                         cookie_length,
                         cookie: cookie.to_vec(),
-                        responder_certificate: certificate.to_vec(),
+                        responder_certificate: certificate,
                     }),
                 },
             ))
@@ -463,7 +574,17 @@ fn main() -> std::io::Result<()> {
 
         let m2 = stream.read();
 
-        let rec_body = m2.packet.first().unwrap().packet.chunks.first().unwrap().payload.get_rhello().unwrap();
+        let rec_body = m2
+            .packet
+            .first()
+            .unwrap()
+            .packet
+            .chunks
+            .first()
+            .unwrap()
+            .payload
+            .get_rhello()
+            .unwrap();
 
         let m = Multiplex {
             session_id: 0,
@@ -482,7 +603,16 @@ fn main() -> std::io::Result<()> {
                             cookie_length: rec_body.cookie_length.into(),
                             cookie_echo: rec_body.cookie,
                             cert_length: 0.into(),
-                            initiator_certificate: vec![],
+                            initiator_certificate: FlashCertificate {
+                                cannonical: vec![
+                                    RTMFPOption::Option {
+                                        length: 1.into(),
+                                        type_: 10.into(),
+                                        value: vec![]
+                                    }
+                                ],
+                                remainder: vec![]
+                            },
                             skic_length: 0.into(),
                             session_key_initiator_component: vec![],
                             signature: vec![],
