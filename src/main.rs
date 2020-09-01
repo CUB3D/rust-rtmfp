@@ -107,7 +107,7 @@ impl IIKeyingChunkBody {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RHelloChunkBody {
     pub tag_length: u8,
     pub tag_echo: Vec<u8>,
@@ -134,6 +134,13 @@ impl ChunkContent {
             ChunkContent::RHello(body) => unimplemented!(),
             ChunkContent::IIKeying(body) => body.encode()(out),
             _ => unimplemented!(),
+        }
+    }
+
+    fn get_rhello(&self) -> Option<RHelloChunkBody> {
+        match self {
+            ChunkContent::RHello(body) => Some(body.clone()),
+            _ => None
         }
     }
 }
@@ -456,6 +463,8 @@ fn main() -> std::io::Result<()> {
 
         let m2 = stream.read();
 
+        let rec_body = m2.packet.first().unwrap().packet.chunks.first().unwrap().payload.get_rhello().unwrap();
+
         let m = Multiplex {
             session_id: 0,
             packet: vec![FlashProfilePlainPacket {
@@ -470,11 +479,8 @@ fn main() -> std::io::Result<()> {
                         chunk_length: 7,
                         payload: ChunkContent::IIKeying(IIKeyingChunkBody {
                             initiator_session_id: 0,
-                            cookie_length: 64.into(),
-                            cookie_echo:
-                                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-                                    .as_bytes()
-                                    .to_vec(),
+                            cookie_length: rec_body.cookie_length.into(),
+                            cookie_echo: rec_body.cookie,
                             cert_length: 0.into(),
                             initiator_certificate: vec![],
                             skic_length: 0.into(),
