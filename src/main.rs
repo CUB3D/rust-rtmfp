@@ -5,6 +5,7 @@ use cookie_factory::{gen, SerializeFn};
 use std::io::Write;
 use std::net::UdpSocket;
 
+use crate::vlu::VLU;
 use aes::Aes128;
 use block_modes::block_padding::NoPadding;
 use block_modes::{BlockMode, Cbc};
@@ -12,6 +13,9 @@ use cookie_factory::combinator::cond;
 use enumset::EnumSet;
 
 type Aes128Cbc = Cbc<Aes128, NoPadding>;
+
+pub mod session_key_components;
+pub mod vlu;
 
 #[repr(u8)]
 pub enum ChunkType {
@@ -69,24 +73,18 @@ impl RTMFPOption {
         }
     }
 
-        fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
-            move |out| match self {
-                RTMFPOption::Marker => VLU::from(0).encode()(out),
-                RTMFPOption::Option {
-                    value,
-                    type_,
-                    length,
-                } => {
-                    tuple((
-                        length.encode(),
-                        type_.encode(),
-                        encode_raw(value)
-                    ))(out)
-                }
-            }
+    fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
+        move |out| match self {
+            RTMFPOption::Marker => VLU::from(0).encode()(out),
+            RTMFPOption::Option {
+                value,
+                type_,
+                length,
+            } => tuple((length.encode(), type_.encode(), encode_raw(value)))(out),
         }
+    }
 
-        pub fn is_marker(&self) -> bool {
+    pub fn is_marker(&self) -> bool {
         matches!(self, RTMFPOption::Marker)
     }
 }
@@ -135,53 +133,6 @@ impl FlashCertificate {
 
     fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
         all(self.cannonical.iter().map(|c| c.encode()))
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct VLU {
-    pub length: u8,
-    pub value: u64,
-}
-
-impl VLU {
-    fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
-        let mut value: u64 = 0;
-        let mut pos = 0;
-
-        let mut i = i;
-        loop {
-            let (j, v) = nom::number::complete::be_u8(i)?;
-            i = j;
-
-            value *= 128;
-            value += (v & 0b01111111) as u64;
-            pos += 1;
-
-            if v & 0b10000000 == 0 {
-                break;
-            }
-        }
-
-        let vlu = Self {
-            length: pos as u8,
-            value,
-        };
-
-        Ok((i, vlu))
-    }
-
-    fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
-        be_u8((self.value & 0xFF) as u8)
-    }
-}
-
-impl From<u8> for VLU {
-    fn from(value: u8) -> Self {
-        Self {
-            length: 1,
-            value: value as u64,
-        }
     }
 }
 
@@ -604,14 +555,12 @@ fn main() -> std::io::Result<()> {
                             cookie_echo: rec_body.cookie,
                             cert_length: 0.into(),
                             initiator_certificate: FlashCertificate {
-                                cannonical: vec![
-                                    RTMFPOption::Option {
-                                        length: 1.into(),
-                                        type_: 10.into(),
-                                        value: vec![]
-                                    }
-                                ],
-                                remainder: vec![]
+                                cannonical: vec![RTMFPOption::Option {
+                                    length: 1.into(),
+                                    type_: 10.into(),
+                                    value: vec![],
+                                }],
+                                remainder: vec![],
                             },
                             skic_length: 0.into(),
                             session_key_initiator_component: vec![],
