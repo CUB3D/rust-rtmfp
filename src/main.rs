@@ -10,7 +10,9 @@ use aes::Aes128;
 use block_modes::block_padding::NoPadding;
 use block_modes::{BlockMode, Cbc};
 use cookie_factory::combinator::cond;
-use enumset::EnumSet;
+// use enumset::EnumSet;
+use crate::session_key_components::EphemeralDiffieHellmanPublicKeyBody;
+use crate::session_key_components::{ExtraRandomnessBody, SessionKeyingComponent};
 
 type Aes128Cbc = Cbc<Aes128, NoPadding>;
 
@@ -144,7 +146,7 @@ pub struct IIKeyingChunkBody {
     pub cert_length: VLU,
     pub initiator_certificate: FlashCertificate,
     pub skic_length: VLU,
-    pub session_key_initiator_component: Vec<u8>,
+    pub session_key_initiator_component: SessionKeyingComponent,
     pub signature: Vec<u8>,
 }
 
@@ -158,7 +160,10 @@ impl IIKeyingChunkBody {
             //TODO: compute above length
             self.initiator_certificate.encode(),
             self.skic_length.encode(),
-            encode_raw(&self.session_key_initiator_component),
+            all(self
+                .session_key_initiator_component
+                .iter()
+                .map(|s| s.encode())),
             encode_raw(&self.signature),
         ))
     }
@@ -180,7 +185,7 @@ pub enum ChunkContent {
     IIKeying(IIKeyingChunkBody),
 }
 
-fn encode_raw<'a, 'b: 'a, W: Write + 'a>(v: &'b [u8]) -> impl SerializeFn<W> + 'a {
+pub fn encode_raw<'a, 'b: 'a, W: Write + 'a>(v: &'b [u8]) -> impl SerializeFn<W> + 'a {
     all(v.iter().map(move |p| be_u8(*p)))
 }
 
@@ -355,9 +360,9 @@ pub struct FlashProfilePlainPacket {
 impl FlashProfilePlainPacket {
     fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
         let v = vec![];
-        let (mut bytes, _size): (Vec<u8>, u64) = gen(self.packet.encode(), v).unwrap();
+        let (bytes, _size): (Vec<u8>, u64) = gen(self.packet.encode(), v).unwrap();
 
-        let mut simple_checksum: i32 = bytes
+        let simple_checksum: i32 = bytes
             .chunks(2)
             .map(|pair| {
                 let first = pair[0] as u16;
@@ -444,7 +449,6 @@ impl Multiplex {
 
         // i must be decrypted
 
-        use block_modes::BlockMode;
         let key = "Adobe Systems 02".as_bytes();
         let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let cipher = Aes128Cbc::new_var(key, &iv).unwrap();
@@ -562,8 +566,16 @@ fn main() -> std::io::Result<()> {
                                 }],
                                 remainder: vec![],
                             },
-                            skic_length: 0.into(),
-                            session_key_initiator_component: vec![],
+                            skic_length: 69.into(),
+                            session_key_initiator_component: vec![
+                                EphemeralDiffieHellmanPublicKeyBody {
+                                    group_id: 5.into(),
+                                    public_key: vec![]
+                                }.into(),
+                                ExtraRandomnessBody {
+                                    extra_randomness: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".as_bytes().to_vec()
+                                }.into()
+                            ],
                             signature: vec![],
                         }),
                     }],
