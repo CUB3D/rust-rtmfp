@@ -52,6 +52,15 @@ impl RTMFPOption {
     pub fn is_marker(&self) -> bool {
         matches!(self, RTMFPOption::Marker)
     }
+
+    pub fn value(&self) -> Option<Vec<u8>> {
+        match self {
+            RTMFPOption::Option { value, type_, length} => {
+                Some(value.clone())
+            }
+            _ => None
+        }
+    }
 }
 
 impl<W: Write> Encode<W> for RTMFPOption {

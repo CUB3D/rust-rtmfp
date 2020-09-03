@@ -16,5 +16,6 @@ aes = "0.5.0"
 
 x448 = "0.6.0"
 rand = "0.7.3"
+openssl = "0.10.30"
 
 derive-try-from-primitive = "1.0.0"

@@ -6,11 +6,11 @@ use std::io::Write;
 use std::net::UdpSocket;
 
 use crate::endpoint_discriminator::{AncillaryDataBody, EndpointDiscriminator};
-use crate::flash_certificate::FlashCertificate;
+use crate::flash_certificate::{FlashCertificate, AcceptsAncillaryDataBody, SupportedEphemeralDiffieHellmanGroupBody};
 use crate::packet::{PacketFlag, PacketFlags, PacketMode};
 use crate::rtmfp_option::OptionType;
 use crate::rtmfp_option::RTMFPOption;
-use crate::session_key_components::{Decode, Encode, EphemeralDiffieHellmanPublicKeyBody};
+use crate::session_key_components::{Decode, Encode, EphemeralDiffieHellmanPublicKeyBody, get_epehemeral_diffie_hellman_public_key};
 use crate::session_key_components::{ExtraRandomnessBody, SessionKeyingComponent};
 use crate::vlu::VLU;
 use aes::Aes128;
@@ -22,7 +22,9 @@ use nom::lib::std::convert::TryFrom;
 use nom::IResult;
 use rand::rngs::OsRng;
 use std::convert::TryInto;
-use x448::Secret;
+use x448::{Secret, PublicKey};
+use crate::flash_certificate::CertificateOptions::AcceptsAncillaryData;
+use nom::bits::complete::take;
 
 type Aes128Cbc = Cbc<Aes128, NoPadding>;
 
@@ -93,6 +95,32 @@ pub enum ChunkType {
     Padding2 = 0xff,
 }
 
+#[derive(Debug, Clone)]
+pub struct ResponderInitialKeyingChunkBody {
+    pub responder_session_id: u32,
+    pub skrc_length: VLU,
+    pub session_key_responder_component: SessionKeyingComponent,
+    pub signature: Vec<u8>
+}
+
+impl Decode for ResponderInitialKeyingChunkBody {
+    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
+        let (i, responder_session_id) = nom::number::complete::be_u32(i)?;
+        let (i, skrc_length) = VLU::decode(i)?;
+
+        let skrc_bytes = &i[..skrc_length.value as usize];
+        let (_empty, session_key_responder_component) = SessionKeyingComponent::decode(i)?;
+        let signature = i[skrc_length.value as usize..].to_vec();
+
+        Ok((&[], Self {
+            responder_session_id,
+            skrc_length,
+            session_key_responder_component: session_key_responder_component.to_vec(),
+            signature,
+        }))
+    }
+}
+
 #[derive(Debug)]
 pub struct IIKeyingChunkBody {
     pub initiator_session_id: u32,
@@ -113,9 +141,7 @@ impl IIKeyingChunkBody {
         skic: SessionKeyingComponent,
     ) -> Self {
         let cert_size = certificate.encode_static().len();
-        println!("Cert size = {}", cert_size);
         let skic_length = skic.encode_static().len();
-        println!("skik size = {}", skic_length);
 
         Self {
             initiator_session_id: session_id,
@@ -153,9 +179,6 @@ pub struct IHelloChunkBody {
 
 impl<W: Write> Encode<W> for IHelloChunkBody {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        let e = self.endpoint_descriminator.encode_static();
-        println!("EPD = {:?}", e);
-
         tuple((
             self.epd_length.encode(),
             move |out| self.endpoint_descriminator.encode(out),
@@ -179,6 +202,7 @@ pub enum ChunkContent {
     IHello(IHelloChunkBody),
     RHello(RHelloChunkBody),
     IIKeying(IIKeyingChunkBody),
+    RIKeying(ResponderInitialKeyingChunkBody),
 }
 
 pub fn encode_raw<'a, 'b: 'a, W: Write + 'a>(v: &'b [u8]) -> impl SerializeFn<W> + 'a {
@@ -192,6 +216,7 @@ impl<T: Write> Encode<T> for ChunkContent {
             ChunkContent::RHello(body) => unimplemented!(),
             ChunkContent::IIKeying(body) => body.encode()(w),
             ChunkContent::IHello(body) => body.encode(w),
+            ChunkContent::RIKeying(body) => unimplemented!(),
         }
     }
 }
@@ -201,6 +226,13 @@ impl ChunkContent {
     fn get_rhello(&self) -> Option<RHelloChunkBody> {
         match self {
             ChunkContent::RHello(body) => Some(body.clone()),
+            _ => None,
+        }
+    }
+
+    fn get_rikeying(&self) -> Option<ResponderInitialKeyingChunkBody> {
+        match self {
+            ChunkContent::RIKeying(body) => Some(body.clone()),
             _ => None,
         }
     }
@@ -218,8 +250,6 @@ impl Chunk {
         let bytes = self.payload.encode_static();
         let size = bytes.len();
 
-        println!("Chunk size = {}", size);
-
         move |out| {
             tuple((
                 be_u8(self.chunk_type),
@@ -234,7 +264,19 @@ impl Chunk {
         let (i, chunk_length) = nom::number::complete::be_u16(i)?;
 
         let mut i = i;
-        if chunk_type == ChunkType::ResponderHello as u8 {
+
+        if chunk_type == ChunkType::ResponderInitialKeying as u8 {
+            let chunk_bytes = &i[..chunk_length as usize];
+
+            let (_empty, chunk) = ResponderInitialKeyingChunkBody::decode(chunk_bytes)?;
+
+            Ok((&i[chunk_length as usize..], Self {
+                chunk_type,
+                chunk_length,
+                payload: ChunkContent::RIKeying(chunk)
+            }))
+        }
+        else if chunk_type == ChunkType::ResponderHello as u8 {
             let (j, tag_length) = nom::number::complete::be_u8(i)?;
             let (j, tag_echo) = nom::bytes::complete::take(tag_length)(j)?;
 
@@ -387,6 +429,8 @@ impl Multiplex {
                     bytes.push(0);
                 }
 
+                println!("Sending: {:?}", &bytes);
+
                 let key = b"Adobe Systems 02";
                 let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
                 let cipher = Aes128Cbc::new_var(key, &iv).unwrap();
@@ -452,7 +496,7 @@ impl RTMFPStream {
     }
 
     pub fn send(&self, m: Multiplex, encypted: bool) {
-        println!("Sending {:?}", m);
+        // println!("Sending {:?}", m);
         let v = vec![];
         let (bytes, _s2) = gen(m.encode(encypted), v).unwrap();
         self.socket.send(&bytes).unwrap();
@@ -473,24 +517,6 @@ impl RTMFPStream {
 fn main() -> std::io::Result<()> {
     {
         let stream = RTMFPStream::new();
-
-        // let m = Multiplex {
-        //     session_id: 0,
-        //     packet: vec![FlashProfilePlainPacket {
-        //         session_sequence_number: 0,
-        //         checksum: 0,
-        //         packet: Packet {
-        //             flags: 0b0_0_00_1_0_11,
-        //             timestamp: Some(0),
-        //             timestamp_echo: None,
-        //             chunks: vec![Chunk {
-        //                 chunk_type: 0x30,
-        //                 chunk_length: 7,
-        //                 payload: ChunkContent::Raw(vec![2, 0xa, 0xa, 65, 66, 67, 68]),
-        //             }],
-        //         },
-        //     }],
-        // };
 
         let m = Multiplex {
             session_id: 0,
@@ -526,6 +552,8 @@ fn main() -> std::io::Result<()> {
 
         println!("Got multiplex response: {:?}", m2);
 
+        // let public_key
+
         let rec_body = m2
             .packet
             .first()
@@ -539,51 +567,9 @@ fn main() -> std::io::Result<()> {
             .unwrap();
 
         let alice_secret = Secret::new(&mut OsRng);
+        let alice_public = PublicKey::from(&alice_secret);
 
-        // let m = Multiplex {
-        //     session_id: 0,
-        //     packet: vec![FlashProfilePlainPacket {
-        //         session_sequence_number: 0,
-        //         checksum: 0,
-        //         packet: Packet {
-        //             flags: 0b0_0_00_1_0_11,
-        //             timestamp: Some(0),
-        //             timestamp_echo: None,
-        //             chunks: vec![Chunk {
-        //                 chunk_type: ChunkType::InitiatorInitialKeying as u8,
-        //                 chunk_length: 7,
-        //                 payload: ChunkContent::IIKeying(IIKeyingChunkBody {
-        //                     initiator_session_id: 0,
-        //                     cookie_length: rec_body.cookie_length.into(),
-        //                     cookie_echo: rec_body.clone().cookie,
-        //                     cert_length: 0.into(),
-        //                     initiator_certificate: FlashCertificate {
-        //                         cannonical: vec![RTMFPOption::Option {
-        //                             length: 1.into(),
-        //                             type_: 10.into(),
-        //                             value: vec![],
-        //                         }, ExtraRandomnessBody {
-        //                             extra_randomness: vec![]
-        //                         }.into()],
-        //                         remainder: vec![],
-        //                     },
-        //                     skic_length: 69.into(),
-        //                     session_key_initiator_component: vec![
-        //                         EphemeralDiffieHellmanPublicKeyBody {
-        //                             group_id: 5.into(),
-        //                             public_key: vec![]
-        //                         }.into(),
-        //                         ExtraRandomnessBody {
-        //                             extra_randomness: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".as_bytes().to_vec()
-        //                         }.into()
-        //                     ],
-        //                     signature: vec![],
-        //                 }),
-        //             }],
-        //         },
-        //     }],
-        // };
-
+        // skic must only have a ephemeral public key and extra randomness, cert must be empty
         let m = Multiplex {
             session_id: 0,
             packet: vec![FlashProfilePlainPacket {
@@ -603,21 +589,18 @@ fn main() -> std::io::Result<()> {
                             0,
                             rec_body.cookie,
                             FlashCertificate {
-                                cannonical: vec![RTMFPOption::Option {
-                                    length: 1.into(),
-                                    type_: 10.into(),
-                                    value: vec![],
-                                }],
+                                cannonical: vec![
+                                ],
                                 remainder: vec![],
                             },
                             vec![
                                 EphemeralDiffieHellmanPublicKeyBody {
-                                    group_id: 5.into(),
-                                    public_key: alice_secret.as_bytes().to_vec(),
+                                    group_id: 14.into(),
+                                    public_key: alice_public.as_bytes().to_vec(),
                                 }
                                 .into(),
                                 ExtraRandomnessBody {
-                                    extra_randomness: b"AAAA".to_vec(),
+                                    extra_randomness: b"AAAAAAAA".to_vec(),
                                 }
                                 .into(),
                             ],
@@ -628,7 +611,25 @@ fn main() -> std::io::Result<()> {
         };
 
         stream.send(m, true);
-        //
+
+
+        let stage_4 = stream.read();
+
+        println!("Got stage4: {:?}", stage_4);
+
+        let epehemeral_key = get_epehemeral_diffie_hellman_public_key(stage_4.packet.first().unwrap().packet.chunks.first().unwrap().payload.get_rikeying().unwrap().session_key_responder_component).unwrap();
+
+        println!("len = {}", epehemeral_key.public_key.len());
+
+        let server_public = PublicKey::from_bytes(&epehemeral_key.public_key).expect("Loading public key");
+
+        let secret = alice_secret.to_diffie_hellman(&server_public).expect("Shared secret");
+
+        // println!("Got key = {:?}", epehemeral_key);
+
+        println!("Got shared secret = {:?}", secret.as_bytes())
+
+
     }
     Ok(())
 }

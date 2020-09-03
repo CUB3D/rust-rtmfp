@@ -62,8 +62,6 @@ impl<T: Write> Encode<T> for PacketFlags {
         let mode = self.mode as u8;
         flags |= (mode & 0b0000_0011);
 
-        println!("Flags = {}", flags);
-
         be_u8(flags)(w)
     }
 }

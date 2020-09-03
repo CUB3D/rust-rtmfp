@@ -6,23 +6,39 @@ use cookie_factory::bytes::be_u8;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};
 use std::io::Write;
+use nom::IResult;
 
 pub trait Encode<W> {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W>;
 }
-
-pub trait Decode: Sized {
-    fn decode(i: &[u8]) -> nom::IResult<&[u8], Self>;
-}
-
-pub type SessionKeyingComponent = Vec<RTMFPOption>;
-
 impl<W: Write, T: Encode<W>> Encode<W> for Vec<T> {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
         cookie_factory::multi::all(self.iter().map(|t| move |out| t.encode(out)))(w)
     }
 }
+
+pub trait Decode: Sized {
+    fn decode(i: &[u8]) -> nom::IResult<&[u8], Self>;
+}
+impl<T: Decode> Decode for Vec<T> {
+    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
+        nom::multi::many0(T::decode)(i)
+    }
+}
+
+pub type SessionKeyingComponent = Vec<RTMFPOption>;
 static_encode!(SessionKeyingComponent);
+    pub fn get_epehemeral_diffie_hellman_public_key(s: Vec<RTMFPOption>) -> Option<EphemeralDiffieHellmanPublicKeyBody> {
+        s.iter().find(|o| {
+            match o {
+                RTMFPOption::Option { type_, length: _length, value: _value } => {
+                    type_.value == SessionKeyingOptionTypes::EphemeralDiffieHellmanPublicKey as u64
+                }
+                _ => false
+            }
+        }).map(|o| EphemeralDiffieHellmanPublicKeyBody::decode(&o.value().unwrap()).map(|o| o.1).unwrap())
+    }
+
 
 #[derive(Debug)]
 #[repr(u8)]
@@ -49,10 +65,20 @@ optionable!(
     EphemeralDiffieHellmanPublicKeyBody,
     SessionKeyingOptionTypes::EphemeralDiffieHellmanPublicKey
 );
-
 impl<W: Write> Encode<W> for EphemeralDiffieHellmanPublicKeyBody {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
         cookie_factory::sequence::tuple((self.group_id.encode(), encode_raw(&self.public_key)))(w)
+    }
+}
+impl Decode for EphemeralDiffieHellmanPublicKeyBody {
+    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
+        let (i, group_id) = VLU::decode(i)?;
+        let public_key = i.to_vec();
+
+        Ok((&[], Self {
+            group_id,
+            public_key
+        }))
     }
 }
 

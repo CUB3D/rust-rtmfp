@@ -10,24 +10,18 @@ pub fn checksum(bytes: &[u8]) -> u16 {
             let first = pair[0] as u16;
 
             let val = if let Some(second) = pair.get(1).map(|v| *v as u16) {
-                println!("First = {}, second = {}", first, second);
-
                 (first << 8) | second
             } else {
                 first
             } as u32;
 
-            print!("{}, ", val);
 
             val
         })
         .sum::<u32>();
 
-    println!("\nSum = {}", simple_checksum);
 
-    let x = !((simple_checksum >> 16) as u16 + (simple_checksum & 0xFFFF) as u16);
-    println!("Final = {}", x);
-    x
+    !((simple_checksum >> 16) as u16 + (simple_checksum & 0xFFFF) as u16)
 }
 
 #[cfg(test)]
