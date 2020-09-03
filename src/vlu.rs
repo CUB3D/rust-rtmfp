@@ -36,6 +36,9 @@ impl VLU {
     }
 
     pub fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
+        if self.value >= 0xFF {
+            panic!();
+        }
         be_u8((self.value & 0xFF) as u8)
     }
 }
@@ -45,6 +48,26 @@ impl From<u8> for VLU {
         Self {
             length: 1,
             value: value as u64,
+        }
+    }
+}
+
+impl From<usize> for VLU {
+    fn from(value: usize) -> Self {
+        if value < 0xFF {
+            (value as u8).into()
+        } else {
+            unimplemented!()
+        }
+    }
+}
+
+impl From<i32> for VLU {
+    fn from(value: i32) -> Self {
+        if value < 0xFF {
+            (value as u8).into()
+        } else {
+            unimplemented!()
         }
     }
 }

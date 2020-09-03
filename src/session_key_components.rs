@@ -1,56 +1,28 @@
+use crate::static_encode;
 use crate::vlu::VLU;
-use crate::{encode_raw, RTMFPOption};
+use crate::OptionType;
+use crate::{encode_raw, RTMFPOption, StaticEncode};
 use cookie_factory::bytes::be_u8;
 use cookie_factory::sequence::tuple;
-use cookie_factory::{GenResult, SerializeFn, WriteContext};
+use cookie_factory::{GenResult, WriteContext};
 use std::io::Write;
 
 pub trait Encode<W> {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W>;
 }
 
-pub trait StaticEncode {
-    fn encode_static(&self) -> Vec<u8>;
-}
-
-pub trait OptionType {
-    fn option_type(&self) -> u8;
-    fn option_type_vlu(&self) -> VLU {
-        self.option_type().into()
-    }
-}
-
-macro_rules! optionable {
-    ($name: ident, $type_: expr) => {
-        impl OptionType for $name {
-            fn option_type(&self) -> u8 {
-                $type_ as u8
-            }
-        }
-
-        impl StaticEncode for $name {
-            fn encode_static(&self) -> Vec<u8> {
-                let v = vec![];
-                let (bytes, size) = cookie_factory::gen(move |out| self.encode(out), v).unwrap();
-                bytes
-            }
-        }
-    };
-}
-
-impl<T: OptionType + StaticEncode> From<T> for RTMFPOption {
-    fn from(t: T) -> Self {
-        let type_vlu = t.option_type_vlu();
-        let data = t.encode_static();
-        RTMFPOption::Option {
-            type_: type_vlu,
-            length: ((type_vlu.length + data.len() as u8) as u8).into(),
-            value: data,
-        }
-    }
+pub trait Decode: Sized {
+    fn decode(i: &[u8]) -> nom::IResult<&[u8], Self>;
 }
 
 pub type SessionKeyingComponent = Vec<RTMFPOption>;
+
+impl<W: Write, T: Encode<W>> Encode<W> for Vec<T> {
+    fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
+        cookie_factory::multi::all(self.iter().map(|t| move |out| t.encode(out)))(w)
+    }
+}
+static_encode!(SessionKeyingComponent);
 
 #[derive(Debug)]
 #[repr(u8)]

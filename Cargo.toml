@@ -13,3 +13,8 @@ enumset = "1.0.1"
 
 block-modes = "0.6.1"
 aes = "0.5.0"
+
+x448 = "0.6.0"
+rand = "0.7.3"
+
+derive-try-from-primitive = "1.0.0"
