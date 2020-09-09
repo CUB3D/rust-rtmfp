@@ -1,0 +1,3 @@
+[submodule "libs/rust-openssl"]
+	path = libs/rust-openssl
+	url = https://github.com/CUB3D/rust-openssl

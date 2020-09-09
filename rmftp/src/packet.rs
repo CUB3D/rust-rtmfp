@@ -22,7 +22,7 @@ pub enum PacketMode {
     Startup = 3,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PacketFlags {
     pub flags: EnumSet<PacketFlag>,
     // pub reserved: u8,
