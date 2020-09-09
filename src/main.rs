@@ -70,6 +70,7 @@ pub mod packet;
 pub mod rtmfp_option;
 pub mod session_key_components;
 pub mod vlu;
+pub mod connection_state_machine;
 
 #[repr(u8)]
 pub enum ChunkType {
