@@ -1,12 +1,13 @@
 use crate::rtmfp_option::RTMFPOption;
 use crate::session_key_components::{Decode, Encode};
-use crate::{StaticEncode, encode_raw};
-use cookie_factory::multi::all;
-use cookie_factory::{GenResult, WriteContext};
-use std::io::Write;
-use cookie_factory::sequence::tuple;
 use crate::vlu::VLU;
 use crate::OptionType;
+use crate::{encode_raw, StaticEncode};
+use cookie_factory::multi::all;
+use cookie_factory::sequence::tuple;
+use cookie_factory::{GenResult, WriteContext};
+use std::io::Write;
+use nom::IResult;
 
 #[derive(Debug, Clone)]
 pub struct FlashCertificate {
@@ -30,7 +31,7 @@ impl FlashCertificate {
                     }
                     cannonical.push(c);
                 }
-                Err(e) => {
+                Err(_e) => {
                     break;
                 }
             }
@@ -55,6 +56,25 @@ impl<W: Write> Encode<W> for FlashCertificate {
 }
 static_encode!(FlashCertificate);
 
+pub fn get_extra_randomness(
+    s: Vec<RTMFPOption>,
+) -> Option<ExtraRandomnessBody> {
+    s.iter()
+        .find(|o| match o {
+            RTMFPOption::Option {
+                type_,
+                length: _length,
+                value: _value,
+            } => type_.value == CertificateOptions::ExtraRandomness as u64,
+            _ => false,
+        })
+        .map(|o| {
+            ExtraRandomnessBody::decode(&o.value().unwrap())
+                .map(|o| o.1)
+                .unwrap()
+        })
+}
+
 #[repr(u8)]
 pub enum CertificateOptions {
     Hostname = 0x00,
@@ -67,10 +87,7 @@ pub enum CertificateOptions {
 pub struct HostnameBody {
     pub hostname: Vec<u8>,
 }
-optionable!(
-    HostnameBody,
-    CertificateOptions::Hostname
-);
+optionable!(HostnameBody, CertificateOptions::Hostname);
 impl<T: Write> Encode<T> for HostnameBody {
     fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
         encode_raw(&self.hostname)(w)
@@ -91,13 +108,17 @@ impl<T: Write> Encode<T> for AcceptsAncillaryDataBody {
 pub struct ExtraRandomnessBody {
     pub extra_randomness: Vec<u8>,
 }
-optionable!(
-    ExtraRandomnessBody,
-    CertificateOptions::ExtraRandomness
-);
+optionable!(ExtraRandomnessBody, CertificateOptions::ExtraRandomness);
 impl<T: Write> Encode<T> for ExtraRandomnessBody {
     fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
         encode_raw(&self.extra_randomness)(w)
+    }
+}
+impl Decode for ExtraRandomnessBody {
+    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
+        Ok((&[], Self {
+            extra_randomness: i.to_vec()
+        }))
     }
 }
 
@@ -124,6 +145,9 @@ optionable!(
 );
 impl<T: Write> Encode<T> for StaticDiffieHellmanPublicKeyBody {
     fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        tuple((move |out| self.group_id.encode()(out), encode_raw(&self.public_key)))(w)
+        tuple((
+            move |out| self.group_id.encode()(out),
+            encode_raw(&self.public_key),
+        ))(w)
     }
 }

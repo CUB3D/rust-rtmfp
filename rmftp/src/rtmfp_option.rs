@@ -55,10 +55,12 @@ impl RTMFPOption {
 
     pub fn value(&self) -> Option<Vec<u8>> {
         match self {
-            RTMFPOption::Option { value, type_, length} => {
-                Some(value.clone())
-            }
-            _ => None
+            RTMFPOption::Option {
+                value,
+                type_: _type_,
+                length: _length,
+            } => Some(value.clone()),
+            _ => None,
         }
     }
 }
@@ -81,9 +83,14 @@ impl<T: OptionType + StaticEncode> From<T> for RTMFPOption {
     fn from(t: T) -> Self {
         let type_vlu = t.option_type_vlu();
         let data = t.encode_static();
+        let len = (type_vlu.length as u64 + data.len() as u64);
+        if len > 255 {
+            panic!();
+        }
+
         RTMFPOption::Option {
             type_: type_vlu,
-            length: ((type_vlu.length + data.len() as u8) as u8).into(),
+            length: (len as u8).into(),
             value: data,
         }
     }

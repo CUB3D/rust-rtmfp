@@ -15,11 +15,9 @@ pub fn checksum(bytes: &[u8]) -> u16 {
                 first
             } as u32;
 
-
             val
         })
         .sum::<u32>();
-
 
     !((simple_checksum >> 16) as u16 + (simple_checksum & 0xFFFF) as u16)
 }

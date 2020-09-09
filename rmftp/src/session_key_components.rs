@@ -5,8 +5,8 @@ use crate::{encode_raw, RTMFPOption, StaticEncode};
 use cookie_factory::bytes::be_u8;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};
-use std::io::Write;
 use nom::IResult;
+use std::io::Write;
 
 pub trait Encode<W> {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W>;
@@ -28,17 +28,43 @@ impl<T: Decode> Decode for Vec<T> {
 
 pub type SessionKeyingComponent = Vec<RTMFPOption>;
 static_encode!(SessionKeyingComponent);
-    pub fn get_epehemeral_diffie_hellman_public_key(s: Vec<RTMFPOption>) -> Option<EphemeralDiffieHellmanPublicKeyBody> {
-        s.iter().find(|o| {
-            match o {
-                RTMFPOption::Option { type_, length: _length, value: _value } => {
-                    type_.value == SessionKeyingOptionTypes::EphemeralDiffieHellmanPublicKey as u64
-                }
-                _ => false
-            }
-        }).map(|o| EphemeralDiffieHellmanPublicKeyBody::decode(&o.value().unwrap()).map(|o| o.1).unwrap())
-    }
+pub fn get_epehemeral_diffie_hellman_public_key(
+    s: Vec<RTMFPOption>,
+) -> Option<EphemeralDiffieHellmanPublicKeyBody> {
+    s.iter()
+        .find(|o| match o {
+            RTMFPOption::Option {
+                type_,
+                length: _length,
+                value: _value,
+            } => type_.value == SessionKeyingOptionTypes::EphemeralDiffieHellmanPublicKey as u64,
+            _ => false,
+        })
+        .map(|o| {
+            EphemeralDiffieHellmanPublicKeyBody::decode(&o.value().unwrap())
+                .map(|o| o.1)
+                .unwrap()
+        })
+}
 
+pub fn get_extra_randomness(
+    s: Vec<RTMFPOption>,
+) -> Option<ExtraRandomnessBody> {
+    s.iter()
+        .find(|o| match o {
+            RTMFPOption::Option {
+                type_,
+                length: _length,
+                value: _value,
+            } => type_.value == SessionKeyingOptionTypes::ExtraRandomness as u64,
+            _ => false,
+        })
+        .map(|o| {
+            ExtraRandomnessBody::decode(&o.value().unwrap())
+                .map(|o| o.1)
+                .unwrap()
+        })
+}
 
 #[derive(Debug)]
 #[repr(u8)]
@@ -67,7 +93,7 @@ optionable!(
 );
 impl<W: Write> Encode<W> for EphemeralDiffieHellmanPublicKeyBody {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        cookie_factory::sequence::tuple((self.group_id.encode(), encode_raw(&self.public_key)))(w)
+        cookie_factory::sequence::tuple((self.group_id.encode(), be_u8(0), encode_raw(&self.public_key)))(w)
     }
 }
 impl Decode for EphemeralDiffieHellmanPublicKeyBody {
@@ -75,10 +101,13 @@ impl Decode for EphemeralDiffieHellmanPublicKeyBody {
         let (i, group_id) = VLU::decode(i)?;
         let public_key = i.to_vec();
 
-        Ok((&[], Self {
-            group_id,
-            public_key
-        }))
+        Ok((
+            &[],
+            Self {
+                group_id,
+                public_key,
+            },
+        ))
     }
 }
 
@@ -94,6 +123,13 @@ optionable!(
 impl<W: Write> Encode<W> for ExtraRandomnessBody {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
         encode_raw(&self.extra_randomness)(w)
+    }
+}
+impl Decode for ExtraRandomnessBody {
+    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
+        Ok((&[], Self {
+            extra_randomness: i.to_vec()
+        }))
     }
 }
 
