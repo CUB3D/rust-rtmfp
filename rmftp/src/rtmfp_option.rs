@@ -1,5 +1,6 @@
+use crate::encode::Encode;
 use crate::encode_raw;
-use crate::session_key_components::{Decode, Encode};
+use crate::session_key_components::Decode;
 use crate::vlu::VLU;
 use crate::StaticEncode;
 use cookie_factory::sequence::tuple;
@@ -83,7 +84,7 @@ impl<T: OptionType + StaticEncode> From<T> for RTMFPOption {
     fn from(t: T) -> Self {
         let type_vlu = t.option_type_vlu();
         let data = t.encode_static();
-        let len = (type_vlu.length as u64 + data.len() as u64);
+        let len = type_vlu.length as u64 + data.len() as u64;
         if len > 255 {
             panic!();
         }

@@ -1,3 +1,4 @@
+use crate::encode::Encode;
 use crate::static_encode;
 use crate::vlu::VLU;
 use crate::OptionType;
@@ -7,15 +8,6 @@ use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
-
-pub trait Encode<W> {
-    fn encode(&self, w: WriteContext<W>) -> GenResult<W>;
-}
-impl<W: Write, T: Encode<W>> Encode<W> for Vec<T> {
-    fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        cookie_factory::multi::all(self.iter().map(|t| move |out| t.encode(out)))(w)
-    }
-}
 
 pub trait Decode: Sized {
     fn decode(i: &[u8]) -> nom::IResult<&[u8], Self>;
@@ -47,9 +39,7 @@ pub fn get_epehemeral_diffie_hellman_public_key(
         })
 }
 
-pub fn get_extra_randomness(
-    s: Vec<RTMFPOption>,
-) -> Option<ExtraRandomnessBody> {
+pub fn get_extra_randomness(s: Vec<RTMFPOption>) -> Option<ExtraRandomnessBody> {
     s.iter()
         .find(|o| match o {
             RTMFPOption::Option {
@@ -93,7 +83,11 @@ optionable!(
 );
 impl<W: Write> Encode<W> for EphemeralDiffieHellmanPublicKeyBody {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        cookie_factory::sequence::tuple((self.group_id.encode(), be_u8(0), encode_raw(&self.public_key)))(w)
+        cookie_factory::sequence::tuple((
+            self.group_id.encode(),
+            //TODO:
+            encode_raw(&self.public_key),
+        ))(w)
     }
 }
 impl Decode for EphemeralDiffieHellmanPublicKeyBody {
@@ -127,9 +121,12 @@ impl<W: Write> Encode<W> for ExtraRandomnessBody {
 }
 impl Decode for ExtraRandomnessBody {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
-        Ok((&[], Self {
-            extra_randomness: i.to_vec()
-        }))
+        Ok((
+            &[],
+            Self {
+                extra_randomness: i.to_vec(),
+            },
+        ))
     }
 }
 

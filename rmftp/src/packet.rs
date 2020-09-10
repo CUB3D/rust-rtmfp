@@ -1,4 +1,5 @@
-use crate::session_key_components::{Decode, Encode};
+use crate::encode::Encode;
+use crate::session_key_components::Decode;
 use cookie_factory::bytes::be_u8;
 use cookie_factory::{GenResult, WriteContext};
 use enumset::EnumSet;

@@ -1,5 +1,5 @@
+use crate::encode::Encode;
 use crate::rtmfp_option::RTMFPOption;
-use crate::session_key_components::Encode;
 use crate::StaticEncode;
 use crate::{encode_raw, OptionType};
 use cookie_factory::{GenResult, WriteContext};

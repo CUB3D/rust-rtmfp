@@ -5,31 +5,36 @@ use cookie_factory::{gen, GenResult, SerializeFn, WriteContext};
 use std::io::Write;
 use std::net::UdpSocket;
 
+use crate::chunk_ping::PingBody;
+use crate::chunk_ping_reply::PingReplyBody;
+use crate::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
+use crate::chunk_session_close_request::SessionCloseRequestBody;
+use crate::encode::{Encode, StaticEncode};
 use crate::endpoint_discriminator::{AncillaryDataBody, EndpointDiscriminator};
 use crate::flash_certificate::FlashCertificate;
+use crate::flash_profile_plain_packet::FlashProfilePlainPacket;
+use crate::keypair::KeyPair;
 use crate::packet::{PacketFlag, PacketFlags, PacketMode};
 use crate::rtmfp_option::OptionType;
 use crate::rtmfp_option::RTMFPOption;
-use crate::session_key_components::{get_epehemeral_diffie_hellman_public_key, Decode, Encode, EphemeralDiffieHellmanPublicKeyBody, get_extra_randomness};
+use crate::session_key_components::{
+    get_epehemeral_diffie_hellman_public_key, get_extra_randomness, Decode,
+    EphemeralDiffieHellmanPublicKeyBody,
+};
 use crate::session_key_components::{ExtraRandomnessBody, SessionKeyingComponent};
 use crate::vlu::VLU;
 use aes::Aes128;
 use block_modes::block_padding::NoPadding;
 use block_modes::{BlockMode, Cbc};
 use cookie_factory::combinator::cond;
-use enumset::__internal::core_export::ffi::c_void;
-use enumset::__internal::core_export::ptr::null_mut;
-use nom::{IResult, AsBytes};
-use openssl_sys::{BN_bin2bn, BN_bn2bin, BN_new, BN_num_bits, BN_set_word, DH_compute_key, DH_generate_key, DH_get0_key, DH_new, DH_set0_pqg, ERR_get_error, ERR_reason_error_string, DH, DH_get0_pub_key, DH_free};
-use std::convert::TryInto;
-use std::ffi::CStr;
 use enumset::__internal::core_export::time::Duration;
+use nom::{AsBytes, IResult};
+use rand::{thread_rng, Rng};
+use enumset::EnumSet;
+use std::convert::TryInto;
+use crate::ChunkType::SessionCloseAcknowledgement;
 
 type Aes128Cbc = Cbc<Aes128, NoPadding>;
-
-pub trait StaticEncode {
-    fn encode_static(&self) -> Vec<u8>;
-}
 
 #[macro_use]
 extern crate derive_try_from_primitive;
@@ -63,13 +68,20 @@ macro_rules! optionable {
 }
 
 pub mod checksum;
+pub mod chunk_ping;
+pub mod chunk_ping_reply;
+pub mod chunk_session_close_acknowledgement;
+pub mod chunk_session_close_request;
+pub mod connection_state_machine;
+pub mod encode;
 pub mod endpoint_discriminator;
 pub mod flash_certificate;
+pub mod flash_profile_plain_packet;
+pub mod keypair;
 pub mod packet;
 pub mod rtmfp_option;
 pub mod session_key_components;
 pub mod vlu;
-pub mod connection_state_machine;
 
 impl<T: Into<ChunkContent> + StaticEncode + Clone> From<T> for Chunk {
     fn from(t: T) -> Self {
@@ -79,12 +91,13 @@ impl<T: Into<ChunkContent> + StaticEncode + Clone> From<T> for Chunk {
         Self {
             chunk_type: chunk_type as u8,
             chunk_length: len as u16,
-            payload
+            payload,
         }
     }
 }
 
 #[repr(u8)]
+#[derive(TryFromPrimitive)]
 pub enum ChunkType {
     PacketFragment = 0x7f,
     InitiatorHello = 0x30,
@@ -122,6 +135,7 @@ impl Decode for ResponderInitialKeyingChunkBody {
         let (i, skrc_length) = VLU::decode(i)?;
 
         let skrc_bytes = &i[..skrc_length.value as usize];
+        //TODO: should this not be skrc_bytes not i
         let (_empty, session_key_responder_component) = SessionKeyingComponent::decode(i)?;
         let signature = i[skrc_length.value as usize..].to_vec();
 
@@ -226,23 +240,6 @@ pub struct RHelloChunkBody {
 }
 
 #[derive(Debug, Clone)]
-pub struct PingBody {
-    pub message: Vec<u8>,
-}
-
-impl<T: Write> Encode<T> for PingBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        self.message.encode(w)
-    }
-}
-
-impl<T: Write> Encode<T> for u8 {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        be_u8(*self)(w)
-    }
-}
-
-#[derive(Debug, Clone)]
 pub enum ChunkContent {
     Raw(Vec<u8>),
     IHello(IHelloChunkBody),
@@ -250,6 +247,9 @@ pub enum ChunkContent {
     IIKeying(IIKeyingChunkBody),
     RIKeying(ResponderInitialKeyingChunkBody),
     Ping(PingBody),
+    PingReply(PingReplyBody),
+    SessionCloseRequest(SessionCloseRequestBody),
+    SessionCloseAcknowledgement(SessionCloseAcknowledgementBody),
 }
 impl From<ChunkContent> for ChunkType {
     fn from(s: ChunkContent) -> Self {
@@ -259,7 +259,10 @@ impl From<ChunkContent> for ChunkType {
             ChunkContent::IHello(_) => ChunkType::InitiatorHello,
             ChunkContent::IIKeying(_) => ChunkType::InitiatorInitialKeying,
             ChunkContent::RIKeying(_) => ChunkType::ResponderInitialKeying,
-            ChunkContent::Ping(_) => ChunkType::Ping
+            ChunkContent::Ping(_) => ChunkType::Ping,
+            ChunkContent::PingReply(_) => ChunkType::PingReply,
+            ChunkContent::SessionCloseRequest(_) => ChunkType::SessionCloseRequest,
+            ChunkContent::SessionCloseAcknowledgement(_) => ChunkType::SessionCloseAcknowledgement,
         }
     }
 }
@@ -273,10 +276,13 @@ impl<T: Write> Encode<T> for ChunkContent {
         match self {
             ChunkContent::Raw(v) => encode_raw(v)(w),
             ChunkContent::RHello(body) => unimplemented!(),
-            ChunkContent::IIKeying(body) => body.encode()(w),
+            ChunkContent::IIKeying(body) => body.encode(w),
             ChunkContent::IHello(body) => body.encode(w),
             ChunkContent::RIKeying(body) => unimplemented!(),
-            ChunkContent::Ping(body) => body.encode(w)
+            ChunkContent::Ping(body) => body.encode(w),
+            ChunkContent::PingReply(body) => body.encode(w),
+            ChunkContent::SessionCloseRequest(body) => body.encode(w),
+            ChunkContent::SessionCloseAcknowledgement(body) => body.encode(w),
         }
     }
 }
@@ -370,14 +376,25 @@ impl Chunk {
                 },
             ))
         } else {
+
+            let chunk_type_x: ChunkType = chunk_type.try_into().unwrap();
             let (i, payload) = nom::bytes::complete::take(chunk_length)(i)?;
+
+            let payload: ChunkContent = match chunk_type_x {
+                ChunkType::SessionCloseRequest => SessionCloseRequestBody::decode(payload)?.1.into(),
+                ChunkType::Ping => PingBody::decode(payload)?.1.into(),
+                ChunkType::PingReply => PingReplyBody::decode(payload)?.1.into(),
+                ChunkType::SessionCloseAcknowledgement => SessionCloseAcknowledgementBody::decode(payload)?.1.into(),
+                _ => ChunkContent::Raw(payload.to_vec())
+            };
+
 
             Ok((
                 i,
                 Self {
                     chunk_type,
                     chunk_length,
-                    payload: ChunkContent::Raw(payload.to_vec()),
+                    payload,
                 },
             ))
         }
@@ -426,7 +443,10 @@ impl Packet {
             i = j;
         }
 
-        let (i, chunk) = Chunk::decode(i)?;
+        let (i, chunks) = nom::multi::many0(Chunk::decode)(i)?;
+        if chunks.len() > 1 {
+            panic!("Did not expect more than one chunk")
+        }
 
         Ok((
             i,
@@ -434,39 +454,7 @@ impl Packet {
                 flags,
                 timestamp,
                 timestamp_echo,
-                chunks: vec![chunk],
-            },
-        ))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct FlashProfilePlainPacket {
-    pub session_sequence_number: u8,
-    pub checksum: u16,
-    pub packet: Packet,
-}
-
-impl FlashProfilePlainPacket {
-    fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
-        let v = vec![];
-        let (bytes, _size): (Vec<u8>, u64) = gen(self.packet.encode(), v).unwrap();
-
-        let checksum = checksum::checksum(&bytes);
-
-        tuple((be_u16(checksum), self.packet.encode()))
-    }
-
-    fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
-        let (i, checksum) = nom::number::complete::be_u16(i)?;
-        let (i, packet) = Packet::decode(i)?;
-
-        Ok((
-            i,
-            Self {
-                checksum,
-                packet,
-                session_sequence_number: 0,
+                chunks,
             },
         ))
     }
@@ -475,13 +463,16 @@ impl FlashProfilePlainPacket {
 #[derive(Debug, Clone)]
 pub struct Multiplex {
     pub session_id: u32,
-    pub packet: Vec<FlashProfilePlainPacket>,
+    pub packet: FlashProfilePlainPacket,
 }
 
 impl Multiplex {
-    fn encode<'a, 'b: 'a, W: Write + 'a>(&'a self, encryption_key: &'b Option<Vec<u8>>) -> impl SerializeFn<W> + 'a {
+    fn encode<'a, 'b: 'a, W: Write + 'a>(
+        &'a self,
+        encryption_key: &'b Option<Vec<u8>>,
+    ) -> impl SerializeFn<W> + 'a {
         let v = vec![];
-        let (bytes, _size) = gen(all(self.packet.iter().map(move |p| p.encode())), v).unwrap();
+        let (bytes, _size) = gen(move |out| self.packet.encode(out), v).unwrap();
 
         move |out| {
             let mut bytes: Vec<u8> = bytes.to_vec();
@@ -490,6 +481,8 @@ impl Multiplex {
                 while bytes.len() % 16 != 0 {
                     bytes.push(0);
                 }
+
+                println!("Bytes = {:?}", bytes);
 
                 let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
                 let cipher = Aes128Cbc::new_var(key, &iv).unwrap();
@@ -518,6 +511,13 @@ impl Multiplex {
     pub fn decode<'a>(i: &'a [u8], decryption_key: &[u8]) -> nom::IResult<&'a [u8], Self> {
         let (i, scrambled_session_id) = nom::number::complete::be_u32(i)?;
 
+        let first_word: u32 =
+            ((i[0] as u32) << 24) | ((i[1] as u32) << 16) | ((i[2] as u32) << 8) | (i[3] as u32);
+        let second_word: u32 =
+            ((i[4] as u32) << 24) | ((i[5] as u32) << 16) | ((i[6] as u32) << 8) | (i[7] as u32);
+
+        let session_id = scrambled_session_id ^ (first_word ^ second_word);
+
         let mut mut_i = i.to_vec();
 
         // i must be decrypted
@@ -528,13 +528,11 @@ impl Multiplex {
 
         let (_, flash_packet) = FlashProfilePlainPacket::decode(&decrypted).unwrap();
 
-        // let (i, flash_packet) = FlashProfilePlainPacket::decode(i)?;
-
         Ok((
             i,
             Self {
-                packet: vec![flash_packet],
-                session_id: 0, //scrambled_session_id,
+                packet: flash_packet,
+                session_id,
             },
         ))
     }
@@ -552,12 +550,17 @@ impl RTMFPStream {
 
         socket.connect("127.0.0.1:1935").unwrap();
 
-        Self { socket, encryption_key: Some(b"Adobe Systems 02".to_vec()), decryption_key: b"Adobe Systems 02".to_vec() }
+        Self {
+            socket,
+            encryption_key: Some(b"Adobe Systems 02".to_vec()),
+            decryption_key: b"Adobe Systems 02".to_vec(),
+        }
     }
 
     pub fn send(&self, m: Multiplex) {
         let v = vec![];
         let (bytes, _s2) = gen(m.encode(&self.encryption_key), v).unwrap();
+        println!("Bytes = {:?}", bytes);
         self.socket.send(&bytes).unwrap();
     }
 
@@ -575,7 +578,8 @@ impl RTMFPStream {
     }
 
     pub fn set_timeout(&self) {
-        self.socket.set_read_timeout(Some(Duration::from_millis(250)));
+        self.socket
+            .set_read_timeout(Some(Duration::from_millis(250)));
     }
 
     pub fn set_encrypt_key(&mut self, key: Vec<u8>) {
@@ -590,10 +594,17 @@ impl RTMFPStream {
 fn main() -> std::io::Result<()> {
     {
         let mut stream = RTMFPStream::new();
+        let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        stream.set_encrypt_key(encrypt_key.to_vec());
+        stream.set_decrypt_key(decrypt_key.to_vec());
+
+        let mut our_tag = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        thread_rng().fill(&mut our_tag);
 
         let m = Multiplex {
             session_id: 0,
-            packet: vec![FlashProfilePlainPacket {
+            packet: FlashProfilePlainPacket {
                 session_sequence_number: 0,
                 checksum: 0,
                 packet: Packet {
@@ -608,11 +619,12 @@ fn main() -> std::io::Result<()> {
                         endpoint_descriminator: vec![AncillaryDataBody {
                             ancillary_data: vec![],
                         }
-                            .into()],
-                        tag: "ABCDABCDABCDABCD".into(),
-                    }.into()],
+                        .into()],
+                        tag: our_tag.to_vec(),
+                    }
+                    .into()],
                 },
-            }],
+            },
         };
 
         stream.send(m);
@@ -620,11 +632,8 @@ fn main() -> std::io::Result<()> {
         let m2 = stream.read().unwrap();
 
         let their_nonce = get_extra_randomness(
-            m2
-                .clone()
+            m2.clone()
                 .packet
-                .first()
-                .unwrap()
                 .packet
                 .chunks
                 .first()
@@ -633,18 +642,15 @@ fn main() -> std::io::Result<()> {
                 .get_rhello()
                 .unwrap()
                 .responder_certificate
-                .cannonical
+                .cannonical,
         )
-            .unwrap()
-            .extra_randomness;
+        .unwrap()
+        .extra_randomness;
 
         println!("Got multiplex response: {:?}", m2);
 
-
         let rec_body = m2
             .packet
-            .first()
-            .unwrap()
             .packet
             .chunks
             .first()
@@ -653,30 +659,7 @@ fn main() -> std::io::Result<()> {
             .get_rhello()
             .unwrap();
 
-        openssl_sys::init();
-
-        // Gen our key pair
-        let (dh, public_key) = unsafe {
-            use openssl_sys::DH_get_1024_160;
-            let dh = DH_get_1024_160();
-
-            chk(DH_generate_key(dh)).expect("generate key");
-
-            let our_public_key = chk2(DH_get0_pub_key(dh)).expect("Get public key");
-
-            (dh, our_public_key)
-        };
-
-        // Convert our public key to a byte array
-        let public_key_bytes = unsafe {
-            let public_key_size = (BN_num_bits(public_key) + 7) / 8;
-
-            let mut output_buffer = Vec::new();
-            output_buffer.resize(public_key_size.try_into().unwrap(), 0u8);
-            chk(BN_bn2bin(public_key, output_buffer.as_mut_ptr())).expect("public key -> bytes");
-
-            output_buffer
-        };
+        let keypair = KeyPair::new();
 
         //TODO: sending wrong public key size here
 
@@ -685,7 +668,7 @@ fn main() -> std::io::Result<()> {
         // skic must only have a ephemeral public key and extra randomness, cert must be empty
         let m = Multiplex {
             session_id: 0,
-            packet: vec![FlashProfilePlainPacket {
+            packet: FlashProfilePlainPacket {
                 session_sequence_number: 0,
                 checksum: 0,
                 packet: Packet {
@@ -705,17 +688,18 @@ fn main() -> std::io::Result<()> {
                         vec![
                             EphemeralDiffieHellmanPublicKeyBody {
                                 group_id: 2.into(),
-                                public_key: public_key_bytes,
+                                public_key: keypair.public_key.clone(),
                             }
-                                .into(),
+                            .into(),
                             ExtraRandomnessBody {
                                 extra_randomness: our_nonce.clone(),
                             }
-                                .into(),
+                            .into(),
                         ],
-                    ).into()],
-                }
-            }]
+                    )
+                    .into()],
+                },
+            },
         };
 
         stream.send(m);
@@ -727,8 +711,6 @@ fn main() -> std::io::Result<()> {
         let their_key_bytes = get_epehemeral_diffie_hellman_public_key(
             stage_4
                 .packet
-                .first()
-                .unwrap()
                 .packet
                 .chunks
                 .first()
@@ -741,104 +723,65 @@ fn main() -> std::io::Result<()> {
         .unwrap()
         .public_key;
 
-        let responder_session_id = stage_4.clone().packet.first().unwrap().packet.chunks.first().unwrap().payload.get_rikeying().unwrap().responder_session_id;
+        let responder_session_id = stage_4
+            .clone()
+            .packet
+            .packet
+            .chunks
+            .first()
+            .unwrap()
+            .payload
+            .get_rikeying()
+            .unwrap()
+            .responder_session_id;
 
-        // load their key
-        let shared_key = unsafe {
-            let len = their_key_bytes.len();
-            let their_pub_key = BN_bin2bn(their_key_bytes.as_ptr(), len as i32, null_mut());
-
-            let mut out = Vec::new();
-            out.resize(0x80, 0u8);
-            DH_compute_key(out.as_mut_ptr(), their_pub_key, dh);
-            DH_free(dh);
-
-            println!("Shared key = {:?}", out);
-
-            out
-        };
-
+        let shared_key = keypair.derive_shared_key(their_key_bytes);
         // Compute packet keys
-        let encrypt_key = &hmac_sha256::HMAC::mac(hmac_sha256::HMAC::mac(their_nonce.as_bytes(), our_nonce.as_bytes()).as_bytes(), &shared_key)[..16];
-        let decrypt_key = &hmac_sha256::HMAC::mac(hmac_sha256::HMAC::mac(our_nonce.as_bytes(), their_nonce.as_bytes()).as_bytes(), &shared_key)[..16];
+        let encrypt_key = &hmac_sha256::HMAC::mac(
+            hmac_sha256::HMAC::mac(their_nonce.as_bytes(), our_nonce.as_bytes()).as_bytes(),
+            &shared_key,
+        )[..16];
+        let decrypt_key = &hmac_sha256::HMAC::mac(
+            hmac_sha256::HMAC::mac(our_nonce.as_bytes(), their_nonce.as_bytes()).as_bytes(),
+            &shared_key,
+        )[..16];
+        let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         stream.set_encrypt_key(encrypt_key.to_vec());
         stream.set_decrypt_key(decrypt_key.to_vec());
 
         println!("Handshake done\n\n\n");
         stream.set_timeout();
 
-            loop {
-                if let Some(packet) = stream.read() {
-                    println!("Got new packet {:?}", packet);
-                    panic!();
-                } else {
-                    println!("Timeout");
+        loop {
+            if let Some(packet) = stream.read() {
+                println!("Got new packet {:?}", packet);
+            } else {
+                println!("Timeout");
 
-                    let m = Multiplex {
-                        session_id: responder_session_id,
-                        packet: vec![FlashProfilePlainPacket {
-                            session_sequence_number: 0,
-                            checksum: 0,
-                            packet: Packet {
-                                flags: PacketFlags::new(
-                                    PacketMode::Initiator,
-                                    PacketFlag::TimestampPresent.into(),
-                                ),
-                                timestamp: Some(0),
-                                timestamp_echo: None,
-                                chunks: vec![Chunk {
-                                    chunk_type: ChunkType::Ping as u8,
-                                    chunk_length: 0,
-                                    payload: ChunkContent::Ping(PingBody {
-                                        message: "Hello".as_bytes().to_vec()
-                                    }),
-                                }],
-                            },
-                        }],
-                    };
+                let m = Multiplex {
+                    session_id: responder_session_id,
+                    packet: FlashProfilePlainPacket {
+                        session_sequence_number: 0,
+                        checksum: 0,
+                        packet: Packet {
+                            flags: PacketFlags::new(
+                                PacketMode::Initiator,
+                                PacketFlag::TimestampPresent.into(),
+                            ),
+                            timestamp: Some(0),
+                            timestamp_echo: None,
+                            chunks: vec![PingBody {
+                                message: "Hello".as_bytes().to_vec(),
+                            }
+                            .into()],
+                        },
+                    },
+                };
 
-                    // stream.send(m);
-                }
+                stream.send(m);
             }
-    }
-    Ok(())
-}
-
-fn chk2<T>(rval: *mut T) -> Result<*mut T, String> {
-    unsafe {
-        if rval.is_null() {
-            println!("RVal is null");
-            let x = ERR_get_error();
-            println!("Got err = {}", x);
-            let y = ERR_reason_error_string(x);
-            println!("Got err str = {}", x);
-            let z = CStr::from_ptr(y);
-            println!("err = {}", z.to_string_lossy());
-
-            return Err(z.to_string_lossy().to_string());
         }
     }
-
-    Ok(rval)
-}
-
-fn chk(rval: i32) -> Result<(), String> {
-    unsafe {
-        if rval <= 0 {
-            println!("RVal {} is <= 0", rval);
-            let x = ERR_get_error();
-            println!("Got err = {}", x);
-            let y = ERR_reason_error_string(x);
-            println!("Got err str = {}", x);
-            if !y.is_null() {
-                let z = CStr::from_ptr(y);
-                println!("err = {}", z.to_string_lossy());
-                return Err(z.to_string_lossy().to_string());
-            }
-
-            return Err("No error message available".to_string());
-        }
-    }
-
     Ok(())
 }

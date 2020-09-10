@@ -1,13 +1,14 @@
+use crate::encode::Encode;
 use crate::rtmfp_option::RTMFPOption;
-use crate::session_key_components::{Decode, Encode};
+use crate::session_key_components::Decode;
 use crate::vlu::VLU;
 use crate::OptionType;
 use crate::{encode_raw, StaticEncode};
 use cookie_factory::multi::all;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};
-use std::io::Write;
 use nom::IResult;
+use std::io::Write;
 
 #[derive(Debug, Clone)]
 pub struct FlashCertificate {
@@ -56,9 +57,7 @@ impl<W: Write> Encode<W> for FlashCertificate {
 }
 static_encode!(FlashCertificate);
 
-pub fn get_extra_randomness(
-    s: Vec<RTMFPOption>,
-) -> Option<ExtraRandomnessBody> {
+pub fn get_extra_randomness(s: Vec<RTMFPOption>) -> Option<ExtraRandomnessBody> {
     s.iter()
         .find(|o| match o {
             RTMFPOption::Option {
@@ -116,9 +115,12 @@ impl<T: Write> Encode<T> for ExtraRandomnessBody {
 }
 impl Decode for ExtraRandomnessBody {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
-        Ok((&[], Self {
-            extra_randomness: i.to_vec()
-        }))
+        Ok((
+            &[],
+            Self {
+                extra_randomness: i.to_vec(),
+            },
+        ))
     }
 }
 
