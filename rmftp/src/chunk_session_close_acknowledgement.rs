@@ -1,6 +1,7 @@
 use crate::encode::Encode;
 use crate::session_key_components::Decode;
 use crate::ChunkContent;
+use crate::StaticEncode;
 use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
@@ -13,6 +14,7 @@ impl<T: Write> Encode<T> for SessionCloseAcknowledgementBody {
         Ok(w)
     }
 }
+static_encode!(SessionCloseAcknowledgementBody);
 impl Decode for SessionCloseAcknowledgementBody {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
         Ok((i, Self::default()))

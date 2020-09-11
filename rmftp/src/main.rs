@@ -9,6 +9,9 @@ use crate::chunk_ping::PingBody;
 use crate::chunk_ping_reply::PingReplyBody;
 use crate::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
 use crate::chunk_session_close_request::SessionCloseRequestBody;
+use crate::chunk_user_data::{
+    UserDataChunk, UserDataChunkFlags, UserDataChunkFragmentControl, UserDataChunkOptionType,
+};
 use crate::encode::{Encode, StaticEncode};
 use crate::endpoint_discriminator::{AncillaryDataBody, EndpointDiscriminator};
 use crate::flash_certificate::FlashCertificate;
@@ -23,16 +26,16 @@ use crate::session_key_components::{
 };
 use crate::session_key_components::{ExtraRandomnessBody, SessionKeyingComponent};
 use crate::vlu::VLU;
+use crate::ChunkType::SessionCloseAcknowledgement;
 use aes::Aes128;
 use block_modes::block_padding::NoPadding;
 use block_modes::{BlockMode, Cbc};
 use cookie_factory::combinator::cond;
+use enumset::EnumSet;
 use enumset::__internal::core_export::time::Duration;
 use nom::{AsBytes, IResult};
 use rand::{thread_rng, Rng};
-use enumset::EnumSet;
 use std::convert::TryInto;
-use crate::ChunkType::SessionCloseAcknowledgement;
 
 type Aes128Cbc = Cbc<Aes128, NoPadding>;
 
@@ -72,6 +75,7 @@ pub mod chunk_ping;
 pub mod chunk_ping_reply;
 pub mod chunk_session_close_acknowledgement;
 pub mod chunk_session_close_request;
+pub mod chunk_user_data;
 pub mod connection_state_machine;
 pub mod encode;
 pub mod endpoint_discriminator;
@@ -250,6 +254,7 @@ pub enum ChunkContent {
     PingReply(PingReplyBody),
     SessionCloseRequest(SessionCloseRequestBody),
     SessionCloseAcknowledgement(SessionCloseAcknowledgementBody),
+    UserData(UserDataChunk),
 }
 impl From<ChunkContent> for ChunkType {
     fn from(s: ChunkContent) -> Self {
@@ -263,6 +268,7 @@ impl From<ChunkContent> for ChunkType {
             ChunkContent::PingReply(_) => ChunkType::PingReply,
             ChunkContent::SessionCloseRequest(_) => ChunkType::SessionCloseRequest,
             ChunkContent::SessionCloseAcknowledgement(_) => ChunkType::SessionCloseAcknowledgement,
+            ChunkContent::UserData(_) => ChunkType::UserData,
         }
     }
 }
@@ -283,6 +289,7 @@ impl<T: Write> Encode<T> for ChunkContent {
             ChunkContent::PingReply(body) => body.encode(w),
             ChunkContent::SessionCloseRequest(body) => body.encode(w),
             ChunkContent::SessionCloseAcknowledgement(body) => body.encode(w),
+            ChunkContent::UserData(body) => body.encode(w),
         }
     }
 }
@@ -376,18 +383,20 @@ impl Chunk {
                 },
             ))
         } else {
-
             let chunk_type_x: ChunkType = chunk_type.try_into().unwrap();
             let (i, payload) = nom::bytes::complete::take(chunk_length)(i)?;
 
             let payload: ChunkContent = match chunk_type_x {
-                ChunkType::SessionCloseRequest => SessionCloseRequestBody::decode(payload)?.1.into(),
+                ChunkType::SessionCloseRequest => {
+                    SessionCloseRequestBody::decode(payload)?.1.into()
+                }
                 ChunkType::Ping => PingBody::decode(payload)?.1.into(),
                 ChunkType::PingReply => PingReplyBody::decode(payload)?.1.into(),
-                ChunkType::SessionCloseAcknowledgement => SessionCloseAcknowledgementBody::decode(payload)?.1.into(),
-                _ => ChunkContent::Raw(payload.to_vec())
+                ChunkType::SessionCloseAcknowledgement => {
+                    SessionCloseAcknowledgementBody::decode(payload)?.1.into()
+                }
+                _ => ChunkContent::Raw(payload.to_vec()),
             };
-
 
             Ok((
                 i,
@@ -753,9 +762,69 @@ fn main() -> std::io::Result<()> {
         println!("Handshake done\n\n\n");
         stream.set_timeout();
 
+        let flow_start_packet = Multiplex {
+            session_id: responder_session_id,
+            packet: FlashProfilePlainPacket {
+                session_sequence_number: 0,
+                checksum: 0,
+                packet: Packet {
+                    flags: PacketFlags::new(
+                        PacketMode::Initiator,
+                        PacketFlag::TimestampPresent.into(),
+                    ),
+                    timestamp: Some(0),
+                    timestamp_echo: None,
+                    chunks: vec![UserDataChunk {
+                        flags: UserDataChunkFlags {
+                            flags: EnumSet::empty(),
+                            fragment_control: UserDataChunkFragmentControl::Begin,
+                        },
+                        flow_id: 1.into(),
+                        sequence_number: 1.into(),
+                        forward_sequence_number_offset: 0.into(),
+                        options: vec![RTMFPOption::Option {
+                            type_: (UserDataChunkOptionType::PerFlowMetadata as u8).into(),
+                            length: 0.into(),
+                            value: vec![],
+                        }],
+                        user_data: vec![],
+                    }
+                    .into()],
+                },
+            },
+        };
+        stream.send(flow_start_packet);
+
         loop {
             if let Some(packet) = stream.read() {
                 println!("Got new packet {:?}", packet);
+
+                let chunks = packet.packet.packet.chunks;
+
+                for chunk in &chunks {
+                    match chunk.payload {
+                        ChunkContent::SessionCloseRequest(_) => {
+                            let ack = Multiplex {
+                                session_id: responder_session_id,
+                                packet: FlashProfilePlainPacket {
+                                    session_sequence_number: 0,
+                                    checksum: 0,
+                                    packet: Packet {
+                                        flags: PacketFlags::new(
+                                            PacketMode::Initiator,
+                                            PacketFlag::TimestampPresent.into(),
+                                        ),
+                                        timestamp: Some(0),
+                                        timestamp_echo: None,
+                                        chunks: vec![SessionCloseAcknowledgementBody {}.into()],
+                                    },
+                                },
+                            };
+                            stream.send(ack);
+                        }
+                        _ => {}
+                    }
+                }
             } else {
                 println!("Timeout");
 
@@ -779,7 +848,7 @@ fn main() -> std::io::Result<()> {
                     },
                 };
 
-                stream.send(m);
+                // stream.send(m);
             }
         }
     }

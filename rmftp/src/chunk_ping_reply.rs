@@ -1,9 +1,9 @@
 use crate::encode::Encode;
 use crate::session_key_components::Decode;
+use crate::ChunkContent;
 use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
-use crate::ChunkContent;
 
 #[derive(Debug, Clone)]
 pub struct PingReplyBody {

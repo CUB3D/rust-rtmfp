@@ -1,10 +1,10 @@
 use crate::encode::Encode;
 use crate::session_key_components::Decode;
 use crate::ChunkContent;
+use crate::StaticEncode;
 use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
-use crate::StaticEncode;
 
 #[derive(Debug, Clone)]
 pub struct PingBody {
