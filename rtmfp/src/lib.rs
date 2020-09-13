@@ -3,8 +3,9 @@ use cookie_factory::multi::all;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{gen, GenResult, SerializeFn, WriteContext};
 use std::io::Write;
-use std::net::UdpSocket;
+use std::net::{SocketAddr, UdpSocket};
 
+use crate::chunk_ihello::IHelloChunkBody;
 use crate::chunk_ping::PingBody;
 use crate::chunk_ping_reply::PingReplyBody;
 use crate::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
@@ -71,6 +72,7 @@ macro_rules! optionable {
 }
 
 pub mod checksum;
+pub mod chunk_ihello;
 pub mod chunk_ping;
 pub mod chunk_ping_reply;
 pub mod chunk_session_close_acknowledgement;
@@ -173,7 +175,7 @@ impl From<IIKeyingChunkBody> for ChunkContent {
 }
 
 impl IIKeyingChunkBody {
-    fn new(
+    pub fn new(
         session_id: u32,
         cookie: Vec<u8>,
         certificate: FlashCertificate,
@@ -212,35 +214,59 @@ impl<T: Write> Encode<T> for IIKeyingChunkBody {
 static_encode!(IIKeyingChunkBody);
 
 #[derive(Debug, Clone)]
-pub struct IHelloChunkBody {
-    pub epd_length: VLU,
-    pub endpoint_descriminator: EndpointDiscriminator,
-    pub tag: Vec<u8>,
-}
-
-impl<W: Write> Encode<W> for IHelloChunkBody {
-    fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        tuple((
-            self.epd_length.encode(),
-            move |out| self.endpoint_descriminator.encode(out),
-            encode_raw(&self.tag),
-        ))(w)
-    }
-}
-impl From<IHelloChunkBody> for ChunkContent {
-    fn from(s: IHelloChunkBody) -> Self {
-        ChunkContent::IHello(s)
-    }
-}
-static_encode!(IHelloChunkBody);
-
-#[derive(Debug, Clone)]
 pub struct RHelloChunkBody {
     pub tag_length: u8,
     pub tag_echo: Vec<u8>,
     pub cookie_length: u8,
     pub cookie: Vec<u8>,
     pub responder_certificate: FlashCertificate,
+}
+
+impl Decode for RHelloChunkBody {
+    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
+        let (j, tag_length) = nom::number::complete::be_u8(i)?;
+        let (j, tag_echo) = nom::bytes::complete::take(tag_length)(j)?;
+
+        let (j, cookie_length) = nom::number::complete::be_u8(j)?;
+        let (j, cookie) = nom::bytes::complete::take(cookie_length)(j)?;
+
+        // let cert_len =
+        //     (chunk_length - tag_length as u16 - cookie_length as u16 - 1 - 1) as usize;
+
+        // let cropped = j&j[..cert_len];
+        let cropped = j;
+        let (_cropped_rem, certificate) = FlashCertificate::decode(cropped)?;
+        // let j = &j[cert_len..];
+
+        Ok((
+            &[],
+            Self {
+                tag_length,
+                tag_echo: tag_echo.to_vec(),
+                cookie_length,
+                cookie: cookie.to_vec(),
+                responder_certificate: certificate,
+            },
+        ))
+    }
+}
+
+impl<T: Write> Encode<T> for RHelloChunkBody {
+    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
+        tuple((
+            be_u8(self.tag_length),
+            move |out| self.tag_echo.encode(out),
+            be_u8(self.cookie_length),
+            move |out| self.cookie.encode(out),
+            move |out| self.responder_certificate.encode(out),
+        ))(w)
+    }
+}
+static_encode!(RHelloChunkBody);
+impl From<RHelloChunkBody> for ChunkContent {
+    fn from(body: RHelloChunkBody) -> Self {
+        ChunkContent::RHello(body)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -281,7 +307,7 @@ impl<T: Write> Encode<T> for ChunkContent {
     fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
         match self {
             ChunkContent::Raw(v) => encode_raw(v)(w),
-            ChunkContent::RHello(body) => unimplemented!(),
+            ChunkContent::RHello(body) => body.encode(w),
             ChunkContent::IIKeying(body) => body.encode(w),
             ChunkContent::IHello(body) => body.encode(w),
             ChunkContent::RIKeying(body) => unimplemented!(),
@@ -296,14 +322,14 @@ impl<T: Write> Encode<T> for ChunkContent {
 static_encode!(ChunkContent);
 
 impl ChunkContent {
-    fn get_rhello(&self) -> Option<RHelloChunkBody> {
+    pub fn get_rhello(&self) -> Option<RHelloChunkBody> {
         match self {
             ChunkContent::RHello(body) => Some(body.clone()),
             _ => None,
         }
     }
 
-    fn get_rikeying(&self) -> Option<ResponderInitialKeyingChunkBody> {
+    pub fn get_rikeying(&self) -> Option<ResponderInitialKeyingChunkBody> {
         match self {
             ChunkContent::RIKeying(body) => Some(body.clone()),
             _ => None,
@@ -351,37 +377,37 @@ impl Chunk {
                     payload: ChunkContent::RIKeying(chunk),
                 },
             ))
-        } else if chunk_type == ChunkType::ResponderHello as u8 {
-            let (j, tag_length) = nom::number::complete::be_u8(i)?;
-            let (j, tag_echo) = nom::bytes::complete::take(tag_length)(j)?;
-
-            let (j, cookie_length) = nom::number::complete::be_u8(j)?;
-            let (j, cookie) = nom::bytes::complete::take(cookie_length)(j)?;
-
-            let cert_len =
-                (chunk_length - tag_length as u16 - cookie_length as u16 - 1 - 1) as usize;
-            // let (j, certificate) = nom::bytes::complete::take(cert_len)(j)?;
-
-            let cropped = &j[..cert_len];
-            let (_cropped_rem, certificate) = FlashCertificate::decode(cropped)?;
-            let j = &j[cert_len..];
-
-            i = j;
-
-            Ok((
-                i,
-                Self {
-                    chunk_type,
-                    chunk_length,
-                    payload: ChunkContent::RHello(RHelloChunkBody {
-                        tag_length,
-                        tag_echo: tag_echo.to_vec(),
-                        cookie_length,
-                        cookie: cookie.to_vec(),
-                        responder_certificate: certificate,
-                    }),
-                },
-            ))
+        // } else if chunk_type == ChunkType::ResponderHello as u8 {
+        //     let (j, tag_length) = nom::number::complete::be_u8(i)?;
+        //     let (j, tag_echo) = nom::bytes::complete::take(tag_length)(j)?;
+        //
+        //     let (j, cookie_length) = nom::number::complete::be_u8(j)?;
+        //     let (j, cookie) = nom::bytes::complete::take(cookie_length)(j)?;
+        //
+        //     let cert_len =
+        //         (chunk_length - tag_length as u16 - cookie_length as u16 - 1 - 1) as usize;
+        //     // let (j, certificate) = nom::bytes::complete::take(cert_len)(j)?;
+        //
+        //     let cropped = &j[..cert_len];
+        //     let (_cropped_rem, certificate) = FlashCertificate::decode(cropped)?;
+        //     let j = &j[cert_len..];
+        //
+        //     i = j;
+        //
+        //     Ok((
+        //         i,
+        //         Self {
+        //             chunk_type,
+        //             chunk_length,
+        //             payload: ChunkContent::RHello(RHelloChunkBody {
+        //                 tag_length,
+        //                 tag_echo: tag_echo.to_vec(),
+        //                 cookie_length,
+        //                 cookie: cookie.to_vec(),
+        //                 responder_certificate: certificate,
+        //             }),
+        //         },
+        //     ))
         } else {
             let chunk_type_x: ChunkType = chunk_type.try_into().unwrap();
             let (i, payload) = nom::bytes::complete::take(chunk_length)(i)?;
@@ -395,6 +421,8 @@ impl Chunk {
                 ChunkType::SessionCloseAcknowledgement => {
                     SessionCloseAcknowledgementBody::decode(payload)?.1.into()
                 }
+                ChunkType::InitiatorHello => IHelloChunkBody::decode(payload)?.1.into(),
+                ChunkType::ResponderHello => RHelloChunkBody::decode(payload)?.1.into(),
                 _ => ChunkContent::Raw(payload.to_vec()),
             };
 
@@ -547,14 +575,24 @@ impl Multiplex {
     }
 }
 
-struct RTMFPStream {
+pub struct RTMFPStream {
     socket: UdpSocket,
     encryption_key: Option<Vec<u8>>,
     decryption_key: Vec<u8>,
 }
 
 impl RTMFPStream {
-    fn new() -> Self {
+    pub fn new_server() -> Self {
+        let socket = UdpSocket::bind("127.0.0.1:1935").unwrap();
+
+        Self {
+            socket,
+            encryption_key: Some(b"Adobe Systems 02".to_vec()),
+            decryption_key: b"Adobe Systems 02".to_vec(),
+        }
+    }
+
+    pub fn new_client() -> Self {
         let socket = UdpSocket::bind("127.0.0.1:2020").unwrap();
 
         socket.connect("127.0.0.1:1935").unwrap();
@@ -566,21 +604,21 @@ impl RTMFPStream {
         }
     }
 
-    pub fn send(&self, m: Multiplex) {
+    pub fn send(&self, m: Multiplex, dest: SocketAddr) {
         let v = vec![];
         let (bytes, _s2) = gen(m.encode(&self.encryption_key), v).unwrap();
         println!("Bytes = {:?}", bytes);
-        self.socket.send(&bytes).unwrap();
+        self.socket.send_to(&bytes, dest).unwrap();
     }
 
-    pub fn read(&self) -> Option<Multiplex> {
+    pub fn read(&self) -> Option<(Multiplex, SocketAddr)> {
         let mut buf = [0; 1024];
 
-        if let Ok((amt, _src)) = self.socket.recv_from(&mut buf) {
+        if let Ok((amt, src)) = self.socket.recv_from(&mut buf) {
             // Crop the buffer to the size of the packet
             let buf = &buf[..amt];
             let (_i, m) = Multiplex::decode(buf, &self.decryption_key).unwrap();
-            Some(m)
+            Some((m, src))
         } else {
             None
         }
@@ -600,257 +638,257 @@ impl RTMFPStream {
     }
 }
 
-fn main() -> std::io::Result<()> {
-    {
-        let mut stream = RTMFPStream::new();
-        let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        stream.set_encrypt_key(encrypt_key.to_vec());
-        stream.set_decrypt_key(decrypt_key.to_vec());
-
-        let mut our_tag = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        thread_rng().fill(&mut our_tag);
-
-        let m = Multiplex {
-            session_id: 0,
-            packet: FlashProfilePlainPacket {
-                session_sequence_number: 0,
-                checksum: 0,
-                packet: Packet {
-                    flags: PacketFlags::new(
-                        PacketMode::Startup,
-                        PacketFlag::TimestampPresent.into(),
-                    ),
-                    timestamp: Some(0),
-                    timestamp_echo: None,
-                    chunks: vec![IHelloChunkBody {
-                        epd_length: 2.into(),
-                        endpoint_descriminator: vec![AncillaryDataBody {
-                            ancillary_data: vec![],
-                        }
-                        .into()],
-                        tag: our_tag.to_vec(),
-                    }
-                    .into()],
-                },
-            },
-        };
-
-        stream.send(m);
-
-        let m2 = stream.read().unwrap();
-
-        let their_nonce = get_extra_randomness(
-            m2.clone()
-                .packet
-                .packet
-                .chunks
-                .first()
-                .unwrap()
-                .payload
-                .get_rhello()
-                .unwrap()
-                .responder_certificate
-                .cannonical,
-        )
-        .unwrap()
-        .extra_randomness;
-
-        println!("Got multiplex response: {:?}", m2);
-
-        let rec_body = m2
-            .packet
-            .packet
-            .chunks
-            .first()
-            .unwrap()
-            .payload
-            .get_rhello()
-            .unwrap();
-
-        let keypair = KeyPair::new();
-
-        //TODO: sending wrong public key size here
-
-        let our_nonce = b"AAAAAAAA".to_vec();
-
-        // skic must only have a ephemeral public key and extra randomness, cert must be empty
-        let m = Multiplex {
-            session_id: 0,
-            packet: FlashProfilePlainPacket {
-                session_sequence_number: 0,
-                checksum: 0,
-                packet: Packet {
-                    flags: PacketFlags::new(
-                        PacketMode::Startup,
-                        PacketFlag::TimestampPresent.into(),
-                    ),
-                    timestamp: Some(0),
-                    timestamp_echo: None,
-                    chunks: vec![IIKeyingChunkBody::new(
-                        0,
-                        rec_body.cookie,
-                        FlashCertificate {
-                            cannonical: vec![],
-                            remainder: vec![],
-                        },
-                        vec![
-                            EphemeralDiffieHellmanPublicKeyBody {
-                                group_id: 2.into(),
-                                public_key: keypair.public_key.clone(),
-                            }
-                            .into(),
-                            ExtraRandomnessBody {
-                                extra_randomness: our_nonce.clone(),
-                            }
-                            .into(),
-                        ],
-                    )
-                    .into()],
-                },
-            },
-        };
-
-        stream.send(m);
-
-        let stage_4 = stream.read().unwrap();
-
-        println!("Got stage4: {:?}", stage_4);
-
-        let their_key_bytes = get_epehemeral_diffie_hellman_public_key(
-            stage_4
-                .packet
-                .packet
-                .chunks
-                .first()
-                .unwrap()
-                .payload
-                .get_rikeying()
-                .unwrap()
-                .session_key_responder_component,
-        )
-        .unwrap()
-        .public_key;
-
-        let responder_session_id = stage_4
-            .clone()
-            .packet
-            .packet
-            .chunks
-            .first()
-            .unwrap()
-            .payload
-            .get_rikeying()
-            .unwrap()
-            .responder_session_id;
-
-        let shared_key = keypair.derive_shared_key(their_key_bytes);
-        // Compute packet keys
-        let encrypt_key = &hmac_sha256::HMAC::mac(
-            hmac_sha256::HMAC::mac(their_nonce.as_bytes(), our_nonce.as_bytes()).as_bytes(),
-            &shared_key,
-        )[..16];
-        let decrypt_key = &hmac_sha256::HMAC::mac(
-            hmac_sha256::HMAC::mac(our_nonce.as_bytes(), their_nonce.as_bytes()).as_bytes(),
-            &shared_key,
-        )[..16];
-        let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        stream.set_encrypt_key(encrypt_key.to_vec());
-        stream.set_decrypt_key(decrypt_key.to_vec());
-
-        println!("Handshake done\n\n\n");
-        stream.set_timeout();
-
-        let flow_start_packet = Multiplex {
-            session_id: responder_session_id,
-            packet: FlashProfilePlainPacket {
-                session_sequence_number: 0,
-                checksum: 0,
-                packet: Packet {
-                    flags: PacketFlags::new(
-                        PacketMode::Initiator,
-                        PacketFlag::TimestampPresent.into(),
-                    ),
-                    timestamp: Some(0),
-                    timestamp_echo: None,
-                    chunks: vec![UserDataChunk {
-                        flags: UserDataChunkFlags {
-                            flags: EnumSet::empty(),
-                            fragment_control: UserDataChunkFragmentControl::Begin,
-                        },
-                        flow_id: 1.into(),
-                        sequence_number: 1.into(),
-                        forward_sequence_number_offset: 0.into(),
-                        options: vec![RTMFPOption::Option {
-                            type_: (UserDataChunkOptionType::PerFlowMetadata as u8).into(),
-                            length: 0.into(),
-                            value: vec![],
-                        }],
-                        user_data: vec![],
-                    }
-                    .into()],
-                },
-            },
-        };
-        stream.send(flow_start_packet);
-
-        loop {
-            if let Some(packet) = stream.read() {
-                println!("Got new packet {:?}", packet);
-
-                let chunks = packet.packet.packet.chunks;
-
-                for chunk in &chunks {
-                    match chunk.payload {
-                        ChunkContent::SessionCloseRequest(_) => {
-                            let ack = Multiplex {
-                                session_id: responder_session_id,
-                                packet: FlashProfilePlainPacket {
-                                    session_sequence_number: 0,
-                                    checksum: 0,
-                                    packet: Packet {
-                                        flags: PacketFlags::new(
-                                            PacketMode::Initiator,
-                                            PacketFlag::TimestampPresent.into(),
-                                        ),
-                                        timestamp: Some(0),
-                                        timestamp_echo: None,
-                                        chunks: vec![SessionCloseAcknowledgementBody {}.into()],
-                                    },
-                                },
-                            };
-                            stream.send(ack);
-                        }
-                        _ => {}
-                    }
-                }
-            } else {
-                println!("Timeout");
-
-                let m = Multiplex {
-                    session_id: responder_session_id,
-                    packet: FlashProfilePlainPacket {
-                        session_sequence_number: 0,
-                        checksum: 0,
-                        packet: Packet {
-                            flags: PacketFlags::new(
-                                PacketMode::Initiator,
-                                PacketFlag::TimestampPresent.into(),
-                            ),
-                            timestamp: Some(0),
-                            timestamp_echo: None,
-                            chunks: vec![PingBody {
-                                message: "Hello".as_bytes().to_vec(),
-                            }
-                            .into()],
-                        },
-                    },
-                };
-
-                // stream.send(m);
-            }
-        }
-    }
-    Ok(())
-}
+// fn main() -> std::io::Result<()> {
+//     {
+//         let mut stream = RTMFPStream::new();
+//         let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+//         let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+//         stream.set_encrypt_key(encrypt_key.to_vec());
+//         stream.set_decrypt_key(decrypt_key.to_vec());
+//
+//         let mut our_tag = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+//         thread_rng().fill(&mut our_tag);
+//
+//         let m = Multiplex {
+//             session_id: 0,
+//             packet: FlashProfilePlainPacket {
+//                 session_sequence_number: 0,
+//                 checksum: 0,
+//                 packet: Packet {
+//                     flags: PacketFlags::new(
+//                         PacketMode::Startup,
+//                         PacketFlag::TimestampPresent.into(),
+//                     ),
+//                     timestamp: Some(0),
+//                     timestamp_echo: None,
+//                     chunks: vec![IHelloChunkBody {
+//                         epd_length: 2.into(),
+//                         endpoint_descriminator: vec![AncillaryDataBody {
+//                             ancillary_data: vec![],
+//                         }
+//                         .into()],
+//                         tag: our_tag.to_vec(),
+//                     }
+//                     .into()],
+//                 },
+//             },
+//         };
+//
+//         stream.send(m);
+//
+//         let m2 = stream.read().unwrap();
+//
+//         let their_nonce = get_extra_randomness(
+//             m2.clone()
+//                 .packet
+//                 .packet
+//                 .chunks
+//                 .first()
+//                 .unwrap()
+//                 .payload
+//                 .get_rhello()
+//                 .unwrap()
+//                 .responder_certificate
+//                 .cannonical,
+//         )
+//         .unwrap()
+//         .extra_randomness;
+//
+//         println!("Got multiplex response: {:?}", m2);
+//
+//         let rec_body = m2
+//             .packet
+//             .packet
+//             .chunks
+//             .first()
+//             .unwrap()
+//             .payload
+//             .get_rhello()
+//             .unwrap();
+//
+//         let keypair = KeyPair::new();
+//
+//         //TODO: sending wrong public key size here
+//
+//         let our_nonce = b"AAAAAAAA".to_vec();
+//
+//         // skic must only have a ephemeral public key and extra randomness, cert must be empty
+//         let m = Multiplex {
+//             session_id: 0,
+//             packet: FlashProfilePlainPacket {
+//                 session_sequence_number: 0,
+//                 checksum: 0,
+//                 packet: Packet {
+//                     flags: PacketFlags::new(
+//                         PacketMode::Startup,
+//                         PacketFlag::TimestampPresent.into(),
+//                     ),
+//                     timestamp: Some(0),
+//                     timestamp_echo: None,
+//                     chunks: vec![IIKeyingChunkBody::new(
+//                         0,
+//                         rec_body.cookie,
+//                         FlashCertificate {
+//                             cannonical: vec![],
+//                             remainder: vec![],
+//                         },
+//                         vec![
+//                             EphemeralDiffieHellmanPublicKeyBody {
+//                                 group_id: 2.into(),
+//                                 public_key: keypair.public_key.clone(),
+//                             }
+//                             .into(),
+//                             ExtraRandomnessBody {
+//                                 extra_randomness: our_nonce.clone(),
+//                             }
+//                             .into(),
+//                         ],
+//                     )
+//                     .into()],
+//                 },
+//             },
+//         };
+//
+//         stream.send(m);
+//
+//         let stage_4 = stream.read().unwrap();
+//
+//         println!("Got stage4: {:?}", stage_4);
+//
+//         let their_key_bytes = get_epehemeral_diffie_hellman_public_key(
+//             stage_4
+//                 .packet
+//                 .packet
+//                 .chunks
+//                 .first()
+//                 .unwrap()
+//                 .payload
+//                 .get_rikeying()
+//                 .unwrap()
+//                 .session_key_responder_component,
+//         )
+//         .unwrap()
+//         .public_key;
+//
+//         let responder_session_id = stage_4
+//             .clone()
+//             .packet
+//             .packet
+//             .chunks
+//             .first()
+//             .unwrap()
+//             .payload
+//             .get_rikeying()
+//             .unwrap()
+//             .responder_session_id;
+//
+//         let shared_key = keypair.derive_shared_key(their_key_bytes);
+//         // Compute packet keys
+//         let encrypt_key = &hmac_sha256::HMAC::mac(
+//             hmac_sha256::HMAC::mac(their_nonce.as_bytes(), our_nonce.as_bytes()).as_bytes(),
+//             &shared_key,
+//         )[..16];
+//         let decrypt_key = &hmac_sha256::HMAC::mac(
+//             hmac_sha256::HMAC::mac(our_nonce.as_bytes(), their_nonce.as_bytes()).as_bytes(),
+//             &shared_key,
+//         )[..16];
+//         let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+//         let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+//         stream.set_encrypt_key(encrypt_key.to_vec());
+//         stream.set_decrypt_key(decrypt_key.to_vec());
+//
+//         println!("Handshake done\n\n\n");
+//         stream.set_timeout();
+//
+//         let flow_start_packet = Multiplex {
+//             session_id: responder_session_id,
+//             packet: FlashProfilePlainPacket {
+//                 session_sequence_number: 0,
+//                 checksum: 0,
+//                 packet: Packet {
+//                     flags: PacketFlags::new(
+//                         PacketMode::Initiator,
+//                         PacketFlag::TimestampPresent.into(),
+//                     ),
+//                     timestamp: Some(0),
+//                     timestamp_echo: None,
+//                     chunks: vec![UserDataChunk {
+//                         flags: UserDataChunkFlags {
+//                             flags: EnumSet::empty(),
+//                             fragment_control: UserDataChunkFragmentControl::Begin,
+//                         },
+//                         flow_id: 1.into(),
+//                         sequence_number: 1.into(),
+//                         forward_sequence_number_offset: 0.into(),
+//                         options: vec![RTMFPOption::Option {
+//                             type_: (UserDataChunkOptionType::PerFlowMetadata as u8).into(),
+//                             length: 0.into(),
+//                             value: vec![],
+//                         }],
+//                         user_data: vec![],
+//                     }
+//                     .into()],
+//                 },
+//             },
+//         };
+//         stream.send(flow_start_packet);
+//
+//         loop {
+//             if let Some(packet) = stream.read() {
+//                 println!("Got new packet {:?}", packet);
+//
+//                 let chunks = packet.packet.packet.chunks;
+//
+//                 for chunk in &chunks {
+//                     match chunk.payload {
+//                         ChunkContent::SessionCloseRequest(_) => {
+//                             let ack = Multiplex {
+//                                 session_id: responder_session_id,
+//                                 packet: FlashProfilePlainPacket {
+//                                     session_sequence_number: 0,
+//                                     checksum: 0,
+//                                     packet: Packet {
+//                                         flags: PacketFlags::new(
+//                                             PacketMode::Initiator,
+//                                             PacketFlag::TimestampPresent.into(),
+//                                         ),
+//                                         timestamp: Some(0),
+//                                         timestamp_echo: None,
+//                                         chunks: vec![SessionCloseAcknowledgementBody {}.into()],
+//                                     },
+//                                 },
+//                             };
+//                             stream.send(ack);
+//                         }
+//                         _ => {}
+//                     }
+//                 }
+//             } else {
+//                 println!("Timeout");
+//
+//                 let m = Multiplex {
+//                     session_id: responder_session_id,
+//                     packet: FlashProfilePlainPacket {
+//                         session_sequence_number: 0,
+//                         checksum: 0,
+//                         packet: Packet {
+//                             flags: PacketFlags::new(
+//                                 PacketMode::Initiator,
+//                                 PacketFlag::TimestampPresent.into(),
+//                             ),
+//                             timestamp: Some(0),
+//                             timestamp_echo: None,
+//                             chunks: vec![PingBody {
+//                                 message: "Hello".as_bytes().to_vec(),
+//                             }
+//                             .into()],
+//                         },
+//                     },
+//                 };
+//
+//                 // stream.send(m);
+//             }
+//         }
+//     }
+//     Ok(())
+// }

@@ -1,0 +1,25 @@
+[package]
+name = "rtmfp-client"
+version = "0.1.0"
+authors = ["CUB3D <callumthom11@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rtmfp = { path = "../rtmfp"}
+
+
+cookie-factory = "0.3.1"
+nom = "5"
+enumset = "1.0.1"
+
+block-modes = "0.6.1"
+aes = "0.5.0"
+
+rand = "0.7.3"
+
+openssl-sys = { path = "../libs/rust-openssl/openssl-sys" }
+hmac-sha256 = "0.1.6"
+
+derive-try-from-primitive = "1.0.0"

@@ -467,6 +467,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtmfp-client"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "block-modes",
+ "cookie-factory",
+ "derive-try-from-primitive",
+ "enumset",
+ "hmac-sha256",
+ "nom",
+ "openssl-sys",
+ "rand 0.7.3",
+ "rtmfp",
+]
+
+[[package]]
+name = "rtmfp-server"
+version = "0.1.0"
+dependencies = [
+ "rtmfp",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

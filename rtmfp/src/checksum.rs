@@ -1,6 +1,6 @@
 pub fn checksum(bytes: &[u8]) -> u16 {
     let mut bytes = bytes.to_vec();
-    if bytes.len() % 2 != 0 {
+    if bytes.len() % 16 != 0 {
         bytes.push(0);
     }
 
