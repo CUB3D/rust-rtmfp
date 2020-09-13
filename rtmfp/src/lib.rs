@@ -6,8 +6,11 @@ use std::io::Write;
 use std::net::{SocketAddr, UdpSocket};
 
 use crate::chunk_ihello::IHelloChunkBody;
+use crate::chunk_iikeying::IIKeyingChunkBody;
 use crate::chunk_ping::PingBody;
 use crate::chunk_ping_reply::PingReplyBody;
+use crate::chunk_rhello::RHelloChunkBody;
+use crate::chunk_rikeying::ResponderInitialKeyingChunkBody;
 use crate::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
 use crate::chunk_session_close_request::SessionCloseRequestBody;
 use crate::chunk_user_data::{
@@ -73,8 +76,11 @@ macro_rules! optionable {
 
 pub mod checksum;
 pub mod chunk_ihello;
+pub mod chunk_iikeying;
 pub mod chunk_ping;
 pub mod chunk_ping_reply;
+pub mod chunk_rhello;
+pub mod chunk_rikeying;
 pub mod chunk_session_close_acknowledgement;
 pub mod chunk_session_close_request;
 pub mod chunk_user_data;
@@ -128,148 +134,6 @@ pub enum ChunkType {
 }
 
 #[derive(Debug, Clone)]
-pub struct ResponderInitialKeyingChunkBody {
-    pub responder_session_id: u32,
-    pub skrc_length: VLU,
-    pub session_key_responder_component: SessionKeyingComponent,
-    pub signature: Vec<u8>,
-}
-
-impl Decode for ResponderInitialKeyingChunkBody {
-    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
-        let (i, responder_session_id) = nom::number::complete::be_u32(i)?;
-        let (i, skrc_length) = VLU::decode(i)?;
-
-        let skrc_bytes = &i[..skrc_length.value as usize];
-        //TODO: should this not be skrc_bytes not i
-        let (_empty, session_key_responder_component) = SessionKeyingComponent::decode(i)?;
-        let signature = i[skrc_length.value as usize..].to_vec();
-
-        Ok((
-            &[],
-            Self {
-                responder_session_id,
-                skrc_length,
-                session_key_responder_component: session_key_responder_component.to_vec(),
-                signature,
-            },
-        ))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct IIKeyingChunkBody {
-    pub initiator_session_id: u32,
-    pub cookie_length: VLU,
-    pub cookie_echo: Vec<u8>,
-    pub cert_length: VLU,
-    pub initiator_certificate: FlashCertificate,
-    pub skic_length: VLU,
-    pub session_key_initiator_component: SessionKeyingComponent,
-    pub signature: Vec<u8>,
-}
-impl From<IIKeyingChunkBody> for ChunkContent {
-    fn from(s: IIKeyingChunkBody) -> Self {
-        ChunkContent::IIKeying(s)
-    }
-}
-
-impl IIKeyingChunkBody {
-    pub fn new(
-        session_id: u32,
-        cookie: Vec<u8>,
-        certificate: FlashCertificate,
-        skic: SessionKeyingComponent,
-    ) -> Self {
-        let cert_size = certificate.encode_static().len();
-        let skic_length = skic.encode_static().len();
-
-        Self {
-            initiator_session_id: session_id,
-            cookie_length: cookie.len().into(),
-            cookie_echo: cookie,
-            cert_length: cert_size.into(),
-            initiator_certificate: certificate,
-            skic_length: skic_length.into(),
-            session_key_initiator_component: skic,
-            signature: vec![],
-        }
-    }
-}
-impl<T: Write> Encode<T> for IIKeyingChunkBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        tuple((
-            be_u32(self.initiator_session_id),
-            self.cookie_length.encode(),
-            encode_raw(&self.cookie_echo),
-            self.cert_length.encode(),
-            //TODO: compute above length
-            move |out| self.initiator_certificate.encode(out),
-            self.skic_length.encode(),
-            move |out| self.session_key_initiator_component.encode(out),
-            encode_raw(&self.signature),
-        ))(w)
-    }
-}
-static_encode!(IIKeyingChunkBody);
-
-#[derive(Debug, Clone)]
-pub struct RHelloChunkBody {
-    pub tag_length: u8,
-    pub tag_echo: Vec<u8>,
-    pub cookie_length: u8,
-    pub cookie: Vec<u8>,
-    pub responder_certificate: FlashCertificate,
-}
-
-impl Decode for RHelloChunkBody {
-    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
-        let (j, tag_length) = nom::number::complete::be_u8(i)?;
-        let (j, tag_echo) = nom::bytes::complete::take(tag_length)(j)?;
-
-        let (j, cookie_length) = nom::number::complete::be_u8(j)?;
-        let (j, cookie) = nom::bytes::complete::take(cookie_length)(j)?;
-
-        // let cert_len =
-        //     (chunk_length - tag_length as u16 - cookie_length as u16 - 1 - 1) as usize;
-
-        // let cropped = j&j[..cert_len];
-        let cropped = j;
-        let (_cropped_rem, certificate) = FlashCertificate::decode(cropped)?;
-        // let j = &j[cert_len..];
-
-        Ok((
-            &[],
-            Self {
-                tag_length,
-                tag_echo: tag_echo.to_vec(),
-                cookie_length,
-                cookie: cookie.to_vec(),
-                responder_certificate: certificate,
-            },
-        ))
-    }
-}
-
-impl<T: Write> Encode<T> for RHelloChunkBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        tuple((
-            be_u8(self.tag_length),
-            move |out| self.tag_echo.encode(out),
-            be_u8(self.cookie_length),
-            move |out| self.cookie.encode(out),
-            move |out| self.responder_certificate.encode(out),
-        ))(w)
-    }
-}
-static_encode!(RHelloChunkBody);
-impl From<RHelloChunkBody> for ChunkContent {
-    fn from(body: RHelloChunkBody) -> Self {
-        ChunkContent::RHello(body)
-    }
-}
-
-#[derive(Debug, Clone)]
 pub enum ChunkContent {
     Raw(Vec<u8>),
     IHello(IHelloChunkBody),
@@ -310,7 +174,7 @@ impl<T: Write> Encode<T> for ChunkContent {
             ChunkContent::RHello(body) => body.encode(w),
             ChunkContent::IIKeying(body) => body.encode(w),
             ChunkContent::IHello(body) => body.encode(w),
-            ChunkContent::RIKeying(body) => unimplemented!(),
+            ChunkContent::RIKeying(body) => body.encode(w),
             ChunkContent::Ping(body) => body.encode(w),
             ChunkContent::PingReply(body) => body.encode(w),
             ChunkContent::SessionCloseRequest(body) => body.encode(w),
@@ -423,6 +287,7 @@ impl Chunk {
                 }
                 ChunkType::InitiatorHello => IHelloChunkBody::decode(payload)?.1.into(),
                 ChunkType::ResponderHello => RHelloChunkBody::decode(payload)?.1.into(),
+                ChunkType::InitiatorInitialKeying => IIKeyingChunkBody::decode(payload)?.1.into(),
                 _ => ChunkContent::Raw(payload.to_vec()),
             };
 

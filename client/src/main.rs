@@ -5,7 +5,6 @@ use cookie_factory::{gen, GenResult, SerializeFn, WriteContext};
 use std::io::Write;
 use std::net::UdpSocket;
 
-
 use aes::Aes128;
 use block_modes::block_padding::NoPadding;
 use block_modes::{BlockMode, Cbc};
@@ -14,18 +13,23 @@ use enumset::EnumSet;
 use enumset::__internal::core_export::time::Duration;
 use nom::{AsBytes, IResult};
 use rand::{thread_rng, Rng};
-use std::convert::TryInto;
-use rtmfp::{Multiplex, Packet, IHelloChunkBody, IIKeyingChunkBody, ChunkContent, RTMFPStream};
-use rtmfp::flash_profile_plain_packet::FlashProfilePlainPacket;
-use rtmfp::packet::{PacketFlags, PacketMode, PacketFlag};
-use rtmfp::endpoint_discriminator::AncillaryDataBody;
-use rtmfp::flash_certificate::{get_extra_randomness, FlashCertificate};
-use rtmfp::keypair::KeyPair;
-use rtmfp::session_key_components::{EphemeralDiffieHellmanPublicKeyBody, ExtraRandomnessBody, get_epehemeral_diffie_hellman_public_key};
-use rtmfp::chunk_user_data::{UserDataChunk, UserDataChunkFlags, UserDataChunkFragmentControl, UserDataChunkOptionType};
-use rtmfp::rtmfp_option::RTMFPOption;
 use rtmfp::chunk_ping::PingBody;
 use rtmfp::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
+use rtmfp::chunk_user_data::{
+    UserDataChunk, UserDataChunkFlags, UserDataChunkFragmentControl, UserDataChunkOptionType,
+};
+use rtmfp::endpoint_discriminator::AncillaryDataBody;
+use rtmfp::flash_certificate::{get_extra_randomness, FlashCertificate};
+use rtmfp::flash_profile_plain_packet::FlashProfilePlainPacket;
+use rtmfp::keypair::KeyPair;
+use rtmfp::packet::{PacketFlag, PacketFlags, PacketMode};
+use rtmfp::rtmfp_option::RTMFPOption;
+use rtmfp::session_key_components::{
+    get_epehemeral_diffie_hellman_public_key, EphemeralDiffieHellmanPublicKeyBody,
+    ExtraRandomnessBody,
+};
+use rtmfp::{ChunkContent, IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet, RTMFPStream};
+use std::convert::TryInto;
 
 fn main() -> std::io::Result<()> {
     {
@@ -55,10 +59,10 @@ fn main() -> std::io::Result<()> {
                         endpoint_descriminator: vec![AncillaryDataBody {
                             ancillary_data: vec![],
                         }
-                            .into()],
+                        .into()],
                         tag: our_tag.to_vec(),
                     }
-                        .into()],
+                    .into()],
                 },
             },
         };
@@ -80,8 +84,8 @@ fn main() -> std::io::Result<()> {
                 .responder_certificate
                 .cannonical,
         )
-            .unwrap()
-            .extra_randomness;
+        .unwrap()
+        .extra_randomness;
 
         println!("Got multiplex response: {:?}", m2);
 
@@ -126,14 +130,14 @@ fn main() -> std::io::Result<()> {
                                 group_id: 2.into(),
                                 public_key: keypair.public_key.clone(),
                             }
-                                .into(),
+                            .into(),
                             ExtraRandomnessBody {
                                 extra_randomness: our_nonce.clone(),
                             }
-                                .into(),
+                            .into(),
                         ],
                     )
-                        .into()],
+                    .into()],
                 },
             },
         };
@@ -156,8 +160,8 @@ fn main() -> std::io::Result<()> {
                 .unwrap()
                 .session_key_responder_component,
         )
-            .unwrap()
-            .public_key;
+        .unwrap()
+        .public_key;
 
         let responder_session_id = stage_4
             .clone()
@@ -216,7 +220,7 @@ fn main() -> std::io::Result<()> {
                         }],
                         user_data: vec![],
                     }
-                        .into()],
+                    .into()],
                 },
             },
         };
@@ -270,7 +274,7 @@ fn main() -> std::io::Result<()> {
                             chunks: vec![PingBody {
                                 message: "Hello".as_bytes().to_vec(),
                             }
-                                .into()],
+                            .into()],
                         },
                     },
                 };
