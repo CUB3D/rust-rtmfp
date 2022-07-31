@@ -1,9 +1,9 @@
-use std::convert::TryInto;
-use std::ffi::CStr;
-use std::ptr::null_mut;
 use openssl::bn::BigNum;
 use openssl::dh::Dh;
 use openssl::pkey::{Params, Private};
+use std::convert::TryInto;
+use std::ffi::CStr;
+use std::ptr::null_mut;
 
 pub struct KeyPair {
     dh: Dh<Private>,
