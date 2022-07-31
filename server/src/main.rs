@@ -3,7 +3,7 @@ use rtmfp::chunk_rikeying::ResponderInitialKeyingChunkBody;
 use rtmfp::flash_certificate::FlashCertificate;
 use rtmfp::flash_profile_plain_packet::FlashProfilePlainPacket;
 use rtmfp::packet::{PacketFlag, PacketFlags, PacketMode};
-use rtmfp::ChunkContent::RIKeying;
+
 use rtmfp::{ChunkContent, Multiplex, Packet, RTMFPStream};
 
 fn main() {
@@ -49,7 +49,7 @@ fn main() {
 
                     stream.send(m, src);
                 }
-                ChunkContent::IIKeying(body) => {
+                ChunkContent::IIKeying(_body) => {
                     let m = Multiplex {
                         session_id: 0,
                         packet: FlashProfilePlainPacket {

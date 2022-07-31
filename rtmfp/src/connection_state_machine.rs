@@ -43,7 +43,7 @@ enum ConnectionStateWrapper {
 
 impl ConnectionStateWrapper {
     fn process_chunk_body(&self, cc: ChunkContent) {
-        let new_state = match (self, cc) {
+        let _new_state = match (self, cc) {
             (ConnectionStateWrapper::IHelloSent(_cs), ChunkContent::RHello(_)) => {
                 ConnectionStateWrapper::KeyingSent(ConnectionState::<SKeyingSent>::default())
             }

@@ -14,31 +14,30 @@ use crate::chunk_rikeying::ResponderInitialKeyingChunkBody;
 use crate::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
 use crate::chunk_session_close_request::SessionCloseRequestBody;
 use crate::chunk_user_data::{
-    UserDataChunk, UserDataChunkFlags, UserDataChunkFragmentControl, UserDataChunkOptionType,
+    UserDataChunk,
 };
 use crate::encode::{Encode, StaticEncode};
-use crate::endpoint_discriminator::{AncillaryDataBody, EndpointDiscriminator};
-use crate::flash_certificate::FlashCertificate;
+
+
 use crate::flash_profile_plain_packet::FlashProfilePlainPacket;
-use crate::keypair::KeyPair;
-use crate::packet::{PacketFlag, PacketFlags, PacketMode};
+
+use crate::packet::{PacketFlag, PacketFlags};
 use crate::rtmfp_option::OptionType;
 use crate::rtmfp_option::RTMFPOption;
 use crate::session_key_components::{
-    get_epehemeral_diffie_hellman_public_key, get_extra_randomness, Decode,
-    EphemeralDiffieHellmanPublicKeyBody,
+    Decode,
 };
-use crate::session_key_components::{ExtraRandomnessBody, SessionKeyingComponent};
-use crate::vlu::VLU;
-use crate::ChunkType::SessionCloseAcknowledgement;
+
+
+
 use aes::Aes128;
 use block_modes::block_padding::NoPadding;
 use block_modes::{BlockMode, Cbc};
 use cookie_factory::combinator::cond;
-use enumset::EnumSet;
+
 use enumset::__internal::core_export::time::Duration;
-use nom::{AsBytes, IResult};
-use rand::{thread_rng, Rng};
+
+
 use std::convert::TryInto;
 
 type Aes128Cbc = Cbc<Aes128, NoPadding>;
@@ -226,7 +225,7 @@ impl Chunk {
         let (i, chunk_type) = nom::number::complete::be_u8(i)?;
         let (i, chunk_length) = nom::number::complete::be_u16(i)?;
 
-        let mut i = i;
+        let i = i;
 
         if chunk_type == ChunkType::ResponderInitialKeying as u8 {
             let chunk_bytes = &i[..chunk_length as usize];

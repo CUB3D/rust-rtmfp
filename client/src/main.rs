@@ -1,17 +1,17 @@
-use cookie_factory::bytes::{be_u16, be_u32, be_u8};
-use cookie_factory::multi::all;
-use cookie_factory::sequence::tuple;
-use cookie_factory::{gen, GenResult, SerializeFn, WriteContext};
-use std::io::Write;
-use std::net::{SocketAddr, UdpSocket};
 
-use aes::Aes128;
-use block_modes::block_padding::NoPadding;
-use block_modes::{BlockMode, Cbc};
-use cookie_factory::combinator::cond;
+
+
+
+
+
+
+
+
+use block_modes::{BlockMode};
+
 use enumset::EnumSet;
-use enumset::__internal::core_export::time::Duration;
-use nom::{AsBytes, IResult};
+
+use nom::{AsBytes};
 use rand::{thread_rng, Rng};
 use rtmfp::chunk_ping::PingBody;
 use rtmfp::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
@@ -29,7 +29,7 @@ use rtmfp::session_key_components::{
     ExtraRandomnessBody,
 };
 use rtmfp::{ChunkContent, IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet, RTMFPStream};
-use std::convert::TryInto;
+
 
 fn main() -> std::io::Result<()> {
     {
@@ -177,11 +177,11 @@ fn main() -> std::io::Result<()> {
 
         let shared_key = keypair.derive_shared_key(their_key_bytes);
         // Compute packet keys
-        let encrypt_key = &hmac_sha256::HMAC::mac(
+        let _encrypt_key = &hmac_sha256::HMAC::mac(
             hmac_sha256::HMAC::mac(their_nonce.as_bytes(), our_nonce.as_bytes()).as_bytes(),
             &shared_key,
         )[..16];
-        let decrypt_key = &hmac_sha256::HMAC::mac(
+        let _decrypt_key = &hmac_sha256::HMAC::mac(
             hmac_sha256::HMAC::mac(our_nonce.as_bytes(), their_nonce.as_bytes()).as_bytes(),
             &shared_key,
         )[..16];
@@ -259,7 +259,7 @@ fn main() -> std::io::Result<()> {
             } else {
                 println!("Timeout");
 
-                let m = Multiplex {
+                let _m = Multiplex {
                     session_id: responder_session_id,
                     packet: FlashProfilePlainPacket {
                         session_sequence_number: 0,
