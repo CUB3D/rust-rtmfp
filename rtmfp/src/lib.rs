@@ -5,11 +5,11 @@ use cookie_factory::{gen, GenResult, SerializeFn, WriteContext};
 use std::io::Write;
 use std::net::{SocketAddr, UdpSocket};
 
-use crate::chunk_ihello::IHelloChunkBody;
-use crate::chunk_iikeying::IIKeyingChunkBody;
-use crate::chunk_ping::PingBody;
-use crate::chunk_ping_reply::PingReplyBody;
-use crate::chunk_rhello::RHelloChunkBody;
+pub use crate::chunk_ihello::IHelloChunkBody;
+pub use crate::chunk_iikeying::IIKeyingChunkBody;
+pub use crate::chunk_ping::PingBody;
+pub use crate::chunk_ping_reply::PingReplyBody;
+pub use crate::chunk_rhello::RHelloChunkBody;
 use crate::chunk_rikeying::ResponderInitialKeyingChunkBody;
 use crate::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
 use crate::chunk_session_close_request::SessionCloseRequestBody;

@@ -1,9 +1,6 @@
 [workspace]
 members = [
     "rtmfp",
-    "libs/rust-openssl/openssl",
-    "libs/rust-openssl/openssl-sys",
-    "libs/rust-openssl/openssl-errors",
     "client",
     "server"
 ]

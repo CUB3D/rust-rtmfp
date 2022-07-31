@@ -3,7 +3,7 @@ use cookie_factory::multi::all;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{gen, GenResult, SerializeFn, WriteContext};
 use std::io::Write;
-use std::net::UdpSocket;
+use std::net::{SocketAddr, UdpSocket};
 
 use aes::Aes128;
 use block_modes::block_padding::NoPadding;
@@ -33,7 +33,7 @@ use std::convert::TryInto;
 
 fn main() -> std::io::Result<()> {
     {
-        let mut stream = RTMFPStream::new();
+        let mut stream = RTMFPStream::new_client();
         let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         stream.set_encrypt_key(encrypt_key.to_vec());
@@ -67,9 +67,9 @@ fn main() -> std::io::Result<()> {
             },
         };
 
-        stream.send(m);
+        stream.send(m, "127.0.0.1:1935".parse().unwrap());
 
-        let m2 = stream.read().unwrap();
+        let (m2, srv) = stream.read().unwrap();
 
         let their_nonce = get_extra_randomness(
             m2.clone()
@@ -142,9 +142,9 @@ fn main() -> std::io::Result<()> {
             },
         };
 
-        stream.send(m);
+        stream.send(m, srv);
 
-        let stage_4 = stream.read().unwrap();
+        let (stage_4, srv) = stream.read().unwrap();
 
         println!("Got stage4: {:?}", stage_4);
 
@@ -224,10 +224,10 @@ fn main() -> std::io::Result<()> {
                 },
             },
         };
-        stream.send(flow_start_packet);
+        stream.send(flow_start_packet, srv);
 
         loop {
-            if let Some(packet) = stream.read() {
+            if let Some((packet, srv)) = stream.read() {
                 println!("Got new packet {:?}", packet);
 
                 let chunks = packet.packet.packet.chunks;
@@ -251,7 +251,7 @@ fn main() -> std::io::Result<()> {
                                     },
                                 },
                             };
-                            stream.send(ack);
+                            stream.send(ack, srv);
                         }
                         _ => {}
                     }

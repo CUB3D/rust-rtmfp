@@ -16,7 +16,7 @@ aes = "0.5.0"
 
 rand = "0.7.3"
 
-openssl-sys = { path = "../libs/rust-openssl/openssl-sys" }
+openssl = "0.10.41"
 hmac-sha256 = "0.1.6"
 
 derive-try-from-primitive = "1.0.0"

@@ -1,20 +1,31 @@
-use openssl_sys::{
+/*use openssl_sys::{
     BN_bin2bn, BN_bn2bin, BN_num_bits, DH_compute_key, DH_free, DH_generate_key, DH_get0_pub_key,
     ERR_get_error, ERR_reason_error_string, DH,
-};
+};*/
 use std::convert::TryInto;
 use std::ffi::CStr;
 use std::ptr::null_mut;
+use openssl::bn::BigNum;
+use openssl::dh::Dh;
+use openssl::pkey::{Params, Private};
 
 //TODO: not send/sync
 pub struct KeyPair {
-    dh: *mut DH,
+    dh: Dh<Private>,
     pub public_key: Vec<u8>,
 }
 
 impl KeyPair {
     pub fn new() -> Self {
-        openssl_sys::init();
+        // Gen our key pair
+        let dh = Dh::get_1024_160().unwrap();
+        let dh = dh.generate_key().unwrap();
+        let public_key = dh.public_key();
+        let public_key_bytes = public_key.to_vec();
+
+
+
+       /* openssl_sys::init();
 
         // Gen our key pair
         let (dh, public_key) = unsafe {
@@ -26,10 +37,10 @@ impl KeyPair {
             let our_public_key = chk2(DH_get0_pub_key(dh)).expect("Get public key");
 
             (dh, our_public_key)
-        };
+        };*/
 
         // Convert our public key to a byte array
-        let public_key_bytes = unsafe {
+        /*let public_key_bytes = unsafe {
             let public_key_size = (BN_num_bits(public_key) + 7) / 8;
 
             let mut output_buffer = Vec::new();
@@ -37,7 +48,7 @@ impl KeyPair {
             chk(BN_bn2bin(public_key, output_buffer.as_mut_ptr())).expect("public key -> bytes");
 
             output_buffer
-        };
+        };*/
 
         Self {
             dh,
@@ -48,7 +59,13 @@ impl KeyPair {
     // Move self so that DH instance can't be reused
     pub fn derive_shared_key(self, their_key_bytes: Vec<u8>) -> Vec<u8> {
         // load their key
-        let shared_key = unsafe {
+
+        let public_key_bignum = BigNum::from_slice(&their_key_bytes).unwrap();
+        let shared_key = self.dh.compute_key(&public_key_bignum).unwrap();
+        println!("Shared key = {:?}", shared_key);
+
+
+        /*let shared_key = unsafe {
             let len = their_key_bytes.len();
             let their_pub_key = BN_bin2bn(their_key_bytes.as_ptr(), len as i32, null_mut());
 
@@ -60,13 +77,13 @@ impl KeyPair {
             println!("Shared key = {:?}", out);
 
             out
-        };
+        };*/
 
         shared_key
     }
 }
 
-fn chk2<T>(rval: *mut T) -> Result<*mut T, String> {
+/*fn chk2<T>(rval: *mut T) -> Result<*mut T, String> {
     unsafe {
         if rval.is_null() {
             println!("RVal is null");
@@ -82,9 +99,9 @@ fn chk2<T>(rval: *mut T) -> Result<*mut T, String> {
     }
 
     Ok(rval)
-}
+}*/
 
-fn chk(rval: i32) -> Result<(), String> {
+/*fn chk(rval: i32) -> Result<(), String> {
     unsafe {
         if rval <= 0 {
             println!("RVal {} is <= 0", rval);
@@ -103,4 +120,4 @@ fn chk(rval: i32) -> Result<(), String> {
     }
 
     Ok(())
-}
+}*/
