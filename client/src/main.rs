@@ -34,10 +34,12 @@ use rtmfp::{ChunkContent, IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet,
 fn main() -> std::io::Result<()> {
     {
         let mut stream = RTMFPStream::new_client();
-        let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        stream.set_encrypt_key(encrypt_key.to_vec());
-        stream.set_decrypt_key(decrypt_key.to_vec());
+        // let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        // let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        // stream.set_encrypt_key(encrypt_key.to_vec());
+        // stream.set_decrypt_key(decrypt_key.to_vec());
+
+        println!("Stage 0");
 
         let mut our_tag = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         thread_rng().fill(&mut our_tag);
@@ -69,7 +71,9 @@ fn main() -> std::io::Result<()> {
 
         stream.send(m, "127.0.0.1:1935".parse().unwrap());
 
-        let (m2, srv) = stream.read().unwrap();
+        println!("Wait for stage 2");
+
+        let (m2, srv) = stream.read().expect("m2");
 
         let their_nonce = get_extra_randomness(
             m2.clone()
@@ -87,7 +91,8 @@ fn main() -> std::io::Result<()> {
         .unwrap()
         .extra_randomness;
 
-        println!("Got multiplex response: {:?}", m2);
+        // println!("Got multiplex response: {:?}", m2);
+        println!("Thair nonce: {:?}", their_nonce);
 
         let rec_body = m2
             .packet
@@ -103,7 +108,8 @@ fn main() -> std::io::Result<()> {
 
         //TODO: sending wrong public key size here
 
-        let our_nonce = b"AAAAAAAA".to_vec();
+        // let our_nonce = b"AAAAAAAA".to_vec();
+        // let our_nonce = their_nonce.to_vec();
 
         // skic must only have a ephemeral public key and extra randomness, cert must be empty
         let m = Multiplex {
@@ -143,6 +149,8 @@ fn main() -> std::io::Result<()> {
         };
 
         stream.send(m, srv);
+
+        println!("Waiting for stage 4");
 
         let (stage_4, srv) = stream.read().unwrap();
 

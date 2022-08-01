@@ -383,7 +383,7 @@ impl Multiplex {
                     bytes.push(0);
                 }
 
-                println!("Bytes = {:?}", bytes);
+                //println!("Encode multiplex = {:X?}", bytes);
 
                 let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
                 let cipher = Aes128Cbc::new_var(key, &iv).unwrap();
@@ -391,6 +391,9 @@ impl Multiplex {
                 let encrypted = cipher.encrypt_vec(&bytes);
                 bytes = encrypted;
             }
+
+            //println!("Encrypted multiplex = {:X?}", bytes);
+
 
             let first_word: u32 = ((bytes[0] as u32) << 24)
                 | ((bytes[1] as u32) << 16)
@@ -471,7 +474,7 @@ impl RTMFPStream {
     pub fn send(&self, m: Multiplex, dest: SocketAddr) {
         let v = vec![];
         let (bytes, _s2) = gen(m.encode(&self.encryption_key), v).unwrap();
-        println!("Bytes = {:?}", bytes);
+        println!("Send = {:X?}", bytes);
         self.socket.send_to(&bytes, dest).unwrap();
     }
 
