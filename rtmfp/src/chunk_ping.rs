@@ -6,7 +6,7 @@ use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PingBody {
     pub message: Vec<u8>,
 }
@@ -30,5 +30,21 @@ impl Decode for PingBody {
 impl From<PingBody> for ChunkContent {
     fn from(s: PingBody) -> Self {
         ChunkContent::Ping(s)
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use crate::{Decode, PingBody, StaticEncode};
+
+    #[test]
+    pub fn ping_roundtrip() {
+        let packet = PingBody {
+            message: vec![1, 2, 3, 4],
+        };
+        let enc = packet.encode_static();
+        let (i, dec) = PingBody::decode(&enc).unwrap();
+        assert_eq!(dec, packet);
+        assert_eq!(i, &[]);
     }
 }

@@ -5,7 +5,7 @@ use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct SessionCloseRequestBody;
 
 impl<T: Write> Encode<T> for SessionCloseRequestBody {

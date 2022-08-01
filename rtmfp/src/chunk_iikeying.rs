@@ -5,13 +5,13 @@ use crate::session_key_components::{Decode, SessionKeyingComponent};
 use crate::vlu::VLU;
 use crate::StaticEncode;
 use crate::{encode_raw, ChunkContent};
-use cookie_factory::bytes::{be_u32};
+use cookie_factory::bytes::be_u32;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct IIKeyingChunkBody {
     pub initiator_session_id: u32,
     pub cookie_length: VLU,
@@ -100,5 +100,33 @@ impl Decode for IIKeyingChunkBody {
 impl From<IIKeyingChunkBody> for ChunkContent {
     fn from(s: IIKeyingChunkBody) -> Self {
         ChunkContent::IIKeying(s)
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use crate::endpoint_discriminator::AncillaryDataBody;
+    use crate::flash_certificate::FlashCertificate;
+    use crate::{Decode, IIKeyingChunkBody, StaticEncode};
+
+    #[test]
+    pub fn iikeying_roundtrip() {
+        let packet = IIKeyingChunkBody {
+            initiator_session_id: 0,
+            cookie_length: 0.into(),
+            cookie_echo: vec![],
+            cert_length: 0.into(),
+            initiator_certificate: FlashCertificate {
+                cannonical: vec![],
+                remainder: vec![],
+            },
+            skic_length: 0.into(),
+            session_key_initiator_component: vec![],
+            signature: vec![],
+        };
+        let enc = packet.encode_static();
+        let (i, dec) = IIKeyingChunkBody::decode(&enc).unwrap();
+        assert_eq!(dec, packet);
+        assert_eq!(i, &[]);
     }
 }

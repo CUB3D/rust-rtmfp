@@ -10,7 +10,7 @@ use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FlashCertificate {
     pub cannonical: Vec<RTMFPOption>,
     pub remainder: Vec<RTMFPOption>,

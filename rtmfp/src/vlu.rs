@@ -2,9 +2,12 @@ use cookie_factory::bytes::be_u8;
 use cookie_factory::SerializeFn;
 use std::io::Write;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+/// RFC7016[2.1.2], Variable Length Unsigned Integer
 pub struct VLU {
+    /// The number of bytes in the VLU
     pub length: u8,
+    /// The value of the VLU
     pub value: u64,
 }
 

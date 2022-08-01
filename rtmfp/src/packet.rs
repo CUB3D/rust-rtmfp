@@ -16,14 +16,14 @@ pub enum PacketFlag {
 }
 
 #[repr(u8)]
-#[derive(Debug, TryFromPrimitive, Copy, Clone)]
+#[derive(Debug, TryFromPrimitive, Copy, Clone, Eq, PartialEq)]
 pub enum PacketMode {
     Initiator = 1,
     Responder = 2,
     Startup = 3,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PacketFlags {
     pub flags: EnumSet<PacketFlag>,
     // pub reserved: u8,

@@ -9,7 +9,10 @@ use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+/// RFC7016[2.3.2] IHello
+/// Sent by the initiator of a session to begin the handshake
+/// Must be in a packed with session id 0, encrypted with the default session key, with pack mode startup
 pub struct IHelloChunkBody {
     pub epd_length: VLU,
     pub endpoint_descriminator: EndpointDiscriminator,
@@ -50,5 +53,27 @@ static_encode!(IHelloChunkBody);
 impl From<IHelloChunkBody> for ChunkContent {
     fn from(s: IHelloChunkBody) -> Self {
         ChunkContent::IHello(s)
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use crate::endpoint_discriminator::AncillaryDataBody;
+    use crate::{Decode, IHelloChunkBody, StaticEncode};
+
+    #[test]
+    pub fn ihello_roundtrip() {
+        let packet = IHelloChunkBody {
+            epd_length: 2.into(),
+            endpoint_descriminator: vec![AncillaryDataBody {
+                ancillary_data: vec![],
+            }
+            .into()],
+            tag: vec![],
+        };
+        let enc = packet.encode_static();
+        let (i, dec) = IHelloChunkBody::decode(&enc).unwrap();
+        assert_eq!(dec, packet);
+        assert_eq!(i, &[]);
     }
 }
