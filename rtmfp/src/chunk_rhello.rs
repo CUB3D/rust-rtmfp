@@ -3,15 +3,15 @@ use crate::encode::Encode;
 use crate::flash_certificate::FlashCertificate;
 use crate::session_key_components::Decode;
 
+use crate::ChunkContent;
 use crate::StaticEncode;
-use crate::{ChunkContent};
 use cookie_factory::bytes::be_u8;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RHelloChunkBody {
     pub tag_length: u8,
     pub tag_echo: Vec<u8>,
@@ -64,5 +64,30 @@ static_encode!(RHelloChunkBody);
 impl From<RHelloChunkBody> for ChunkContent {
     fn from(body: RHelloChunkBody) -> Self {
         ChunkContent::RHello(body)
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use crate::endpoint_discriminator::AncillaryDataBody;
+    use crate::flash_certificate::FlashCertificate;
+    use crate::{Decode, RHelloChunkBody, StaticEncode};
+
+    #[test]
+    pub fn rhello_roundtrip() {
+        let packet = RHelloChunkBody {
+            tag_length: 0,
+            tag_echo: vec![],
+            cookie_length: 0,
+            cookie: vec![],
+            responder_certificate: FlashCertificate {
+                cannonical: vec![],
+                remainder: vec![],
+            },
+        };
+        let enc = packet.encode_static();
+        let (i, dec) = RHelloChunkBody::decode(&enc).unwrap();
+        assert_eq!(dec, packet);
+        assert_eq!(i, &[]);
     }
 }

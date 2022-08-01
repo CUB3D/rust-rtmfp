@@ -7,8 +7,11 @@ use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, SerializeFn, WriteContext};
 use std::io::Write;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+/// RFC7016[2.1.3] Option
+/// This is a Length-Type-Value triple, encoded with [`VLU`]s
 pub enum RTMFPOption {
+    /// A VLU with a length of 0: has no type and value and is called a Marker
     Marker,
     Option {
         length: VLU,

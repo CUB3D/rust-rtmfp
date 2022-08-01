@@ -4,7 +4,8 @@ use rtmfp::flash_certificate::FlashCertificate;
 use rtmfp::flash_profile_plain_packet::FlashProfilePlainPacket;
 use rtmfp::packet::{PacketFlag, PacketFlags, PacketMode};
 
-use rtmfp::{ChunkContent, Multiplex, Packet, RTMFPStream};
+use rtmfp::rtmfp_stream::RTMFPStream;
+use rtmfp::{ChunkContent, Multiplex, Packet};
 
 fn main() {
     let stream = RTMFPStream::new_server();

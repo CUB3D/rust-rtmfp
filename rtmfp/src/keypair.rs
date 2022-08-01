@@ -1,9 +1,6 @@
 use openssl::bn::BigNum;
 use openssl::dh::Dh;
-use openssl::pkey::{Private};
-
-
-
+use openssl::pkey::Private;
 
 pub struct KeyPair {
     dh: Dh<Private>,

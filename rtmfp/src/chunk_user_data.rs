@@ -10,7 +10,7 @@ use enumset::EnumSet;
 use std::io::Write;
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum UserDataChunkFragmentControl {
     Whole = 0,
     Begin = 1,
@@ -25,13 +25,13 @@ pub enum UserDataChunkFlag {
     Final,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct UserDataChunkFlags {
     pub fragment_control: UserDataChunkFragmentControl,
     pub flags: EnumSet<UserDataChunkFlag>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct UserDataChunk {
     pub flags: UserDataChunkFlags,
     pub flow_id: VLU,

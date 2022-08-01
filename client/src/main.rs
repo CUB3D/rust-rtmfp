@@ -1,17 +1,8 @@
-
-
-
-
-
-
-
-
-
-use block_modes::{BlockMode};
+use block_modes::BlockMode;
 
 use enumset::EnumSet;
 
-use nom::{AsBytes};
+use nom::AsBytes;
 use rand::{thread_rng, Rng};
 use rtmfp::chunk_ping::PingBody;
 use rtmfp::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
@@ -24,12 +15,12 @@ use rtmfp::flash_profile_plain_packet::FlashProfilePlainPacket;
 use rtmfp::keypair::KeyPair;
 use rtmfp::packet::{PacketFlag, PacketFlags, PacketMode};
 use rtmfp::rtmfp_option::RTMFPOption;
+use rtmfp::rtmfp_stream::RTMFPStream;
 use rtmfp::session_key_components::{
     get_epehemeral_diffie_hellman_public_key, EphemeralDiffieHellmanPublicKeyBody,
     ExtraRandomnessBody,
 };
-use rtmfp::{ChunkContent, IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet, RTMFPStream};
-
+use rtmfp::{ChunkContent, IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet};
 
 fn main() -> std::io::Result<()> {
     {
@@ -39,7 +30,6 @@ fn main() -> std::io::Result<()> {
         // stream.set_encrypt_key(encrypt_key.to_vec());
         // stream.set_decrypt_key(decrypt_key.to_vec());
 
-        println!("Stage 0");
 
         let mut our_tag = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         thread_rng().fill(&mut our_tag);

@@ -1,17 +1,16 @@
 use crate::encode::Encode;
 
-
 use crate::session_key_components::{Decode, SessionKeyingComponent};
 use crate::vlu::VLU;
+use crate::ChunkContent;
 use crate::StaticEncode;
-use crate::{ChunkContent};
-use cookie_factory::bytes::{be_u32};
+use cookie_factory::bytes::be_u32;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ResponderInitialKeyingChunkBody {
     pub responder_session_id: u32,
     pub skrc_length: VLU,
@@ -55,5 +54,27 @@ impl Decode for ResponderInitialKeyingChunkBody {
 impl From<ResponderInitialKeyingChunkBody> for ChunkContent {
     fn from(s: ResponderInitialKeyingChunkBody) -> Self {
         ChunkContent::RIKeying(s)
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    use crate::endpoint_discriminator::AncillaryDataBody;
+    use crate::flash_certificate::FlashCertificate;
+    use crate::session_key_components::SessionKeyingComponent;
+    use crate::{Decode, ResponderInitialKeyingChunkBody, StaticEncode};
+
+    #[test]
+    pub fn rikeying_roundtrip() {
+        let packet = ResponderInitialKeyingChunkBody {
+            responder_session_id: 0,
+            skrc_length: 0.into(),
+            session_key_responder_component: vec![],
+            signature: vec![],
+        };
+        let enc = packet.encode_static();
+        let (i, dec) = ResponderInitialKeyingChunkBody::decode(&enc).unwrap();
+        assert_eq!(dec, packet);
+        assert_eq!(i, &[]);
     }
 }
