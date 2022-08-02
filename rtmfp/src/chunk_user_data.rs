@@ -1,7 +1,7 @@
 use crate::encode::Encode;
 use crate::rtmfp_option::RTMFPOption;
 use crate::vlu::VLU;
-use crate::{ChunkContent, StaticEncode};
+use crate::{ChunkContent};
 use cookie_factory::bytes::be_u8;
 use cookie_factory::multi::all;
 use cookie_factory::sequence::tuple;

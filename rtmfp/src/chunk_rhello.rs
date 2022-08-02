@@ -4,7 +4,6 @@ use crate::flash_certificate::FlashCertificate;
 use crate::session_key_components::Decode;
 
 use crate::ChunkContent;
-use crate::StaticEncode;
 use cookie_factory::bytes::be_u8;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};

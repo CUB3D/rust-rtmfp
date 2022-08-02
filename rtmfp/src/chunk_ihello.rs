@@ -2,7 +2,6 @@ use crate::encode::Encode;
 use crate::endpoint_discriminator::EndpointDiscriminator;
 use crate::session_key_components::Decode;
 use crate::vlu::VLU;
-use crate::StaticEncode;
 use crate::{encode_raw, ChunkContent};
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};

@@ -1,7 +1,5 @@
-use cookie_factory::bytes::be_u8;
 use cookie_factory::SerializeFn;
 use std::io::Write;
-use cookie_factory::sequence::tuple;
 use crate::encode_raw;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

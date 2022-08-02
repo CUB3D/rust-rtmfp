@@ -3,7 +3,6 @@ use cookie_factory::multi::all;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{gen, GenResult, SerializeFn, WriteContext};
 use std::io::Write;
-use std::net::{SocketAddr, UdpSocket};
 
 pub use crate::chunk_ihello::IHelloChunkBody;
 pub use crate::chunk_iikeying::IIKeyingChunkBody;
@@ -28,7 +27,6 @@ use block_modes::block_padding::NoPadding;
 use block_modes::{BlockMode, Cbc};
 use cookie_factory::combinator::cond;
 
-use enumset::__internal::core_export::time::Duration;
 
 use std::convert::TryInto;
 
@@ -81,7 +79,6 @@ pub mod encode;
 pub mod endpoint_discriminator;
 pub mod flash_certificate;
 pub mod flash_profile_plain_packet;
-pub mod keypair;
 pub mod packet;
 pub mod rtmfp_option;
 pub mod rtmfp_stream;

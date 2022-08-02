@@ -3,7 +3,7 @@ use crate::rtmfp_option::RTMFPOption;
 use crate::session_key_components::Decode;
 use crate::vlu::VLU;
 use crate::OptionType;
-use crate::{encode_raw, StaticEncode};
+use crate::{encode_raw};
 use cookie_factory::multi::all;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};

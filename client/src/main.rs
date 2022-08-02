@@ -1,8 +1,10 @@
-use block_modes::BlockMode;
 
 use enumset::EnumSet;
 
 use nom::AsBytes;
+use num_bigint::BigUint;
+use num_traits::Num;
+use openssl::bn::BigNum;
 use rand::{thread_rng, Rng};
 use rtmfp::chunk_ping::PingBody;
 use rtmfp::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
@@ -12,7 +14,6 @@ use rtmfp::chunk_user_data::{
 use rtmfp::endpoint_discriminator::AncillaryDataBody;
 use rtmfp::flash_certificate::{get_extra_randomness, FlashCertificate};
 use rtmfp::flash_profile_plain_packet::FlashProfilePlainPacket;
-use rtmfp::keypair::KeyPair;
 use rtmfp::packet::{PacketFlag, PacketFlags, PacketMode};
 use rtmfp::rtmfp_option::RTMFPOption;
 use rtmfp::rtmfp_stream::RTMFPStream;
@@ -97,7 +98,10 @@ fn main() -> std::io::Result<()> {
             .get_rhello()
             .unwrap();
 
-        let keypair = KeyPair::new();
+        let keypair = sussy_hellman::KeyPair::generate(sussy_hellman::KeyPairParams::new_flash());
+        let pub_key_hex = keypair.public.to_str_radix(16);
+        let openssl_bn_pub_key = BigNum::from_hex_str(&pub_key_hex).unwrap();
+        let public_key_bytes = openssl_bn_pub_key.to_vec();
 
         //TODO: sending wrong public key size here
 
@@ -116,7 +120,7 @@ fn main() -> std::io::Result<()> {
             vec![
                 EphemeralDiffieHellmanPublicKeyBody {
                     group_id: 2.into(),
-                    public_key: keypair.public_key.clone(),
+                    public_key: public_key_bytes.clone(),
                 }
                     .into(),
                 /*ExtraRandomnessBody {
@@ -125,7 +129,7 @@ fn main() -> std::io::Result<()> {
                 .into(),*/
             ],
         );
-        body.signature = keypair.public_key.clone();
+        body.signature = public_key_bytes.clone();// keypair.public_key.clone();
 
         let m = Multiplex {
             session_id: 0,
@@ -146,10 +150,10 @@ fn main() -> std::io::Result<()> {
 
         stream.send(m, srv);
 
-        println!("{:?}", &keypair.public_key[0..=32]);
+        /*println!("{:?}", &keypair.public_key[0..=32]);
         println!("{:?}", &keypair.public_key[33..=64]);
         println!("{:?}", &keypair.public_key[65..=96]);
-        println!("{:?}", &keypair.public_key[97..=127]);
+        println!("{:?}", &keypair.public_key[97..=127]);*/
 
         println!("Waiting for stage 4");
 
@@ -179,6 +183,13 @@ fn main() -> std::io::Result<()> {
         println!("{:?}", &their_key_bytes[65..=96]);
         println!("{:?}", &their_key_bytes[97..=127]);
 
+        let their_key_bn = BigNum::from_slice(&their_key_bytes).unwrap();
+        let their_key_hex = their_key_bn.to_hex_str().unwrap().to_owned();
+        let bignum_key = BigUint::from_str_radix(&their_key_hex, 16).unwrap();
+        let shared_key = keypair.compute_key(&bignum_key);
+        println!("Shared key hex = {}", shared_key.to_str_radix(16));
+
+
         let responder_session_id = stage_4
             .clone()
             .packet
@@ -191,7 +202,8 @@ fn main() -> std::io::Result<()> {
             .unwrap()
             .responder_session_id;
 
-        let shared_key = keypair.derive_shared_key(their_key_bytes);
+        let _ = std::fs::write("./server-pubkey.bin", &their_key_bytes).unwrap();
+        let shared_key = &[];//keypair.derive_shared_key(their_key_bytes);
         // Compute packet keys
         let _encrypt_key = &hmac_sha256::HMAC::mac(
             hmac_sha256::HMAC::mac(their_nonce.as_bytes(), our_nonce.as_bytes()).as_bytes(),

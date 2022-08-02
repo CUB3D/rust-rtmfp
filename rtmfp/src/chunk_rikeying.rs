@@ -3,7 +3,6 @@ use crate::encode::Encode;
 use crate::session_key_components::{Decode, SessionKeyingComponent};
 use crate::vlu::VLU;
 use crate::ChunkContent;
-use crate::StaticEncode;
 use cookie_factory::bytes::be_u32;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};

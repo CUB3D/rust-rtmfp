@@ -8,17 +8,11 @@ edition = "2021"
 
 [dependencies]
 rtmfp = { path = "../rtmfp"}
-
-cookie-factory = "0.3.1"
 nom = "5"
 enumset = "1.0.1"
-
-block-modes = "0.6.1"
-aes = "0.5.0"
-
 rand = "0.8.5"
-
-openssl = "0.10.41"
 hmac-sha256 = "1.1.4"
-
-derive-try-from-primitive = "1.0.0"
+sussy_hellman = { path = "../sussy_hellman" }
+openssl = "0.10.41"
+num-bigint = "0.4.3"
+num-traits = "0.2.15"

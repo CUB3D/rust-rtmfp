@@ -260,10 +260,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-traits"
-version = "0.2.12"
+name = "num-bigint"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac267bcc07f48ee5f8935ab0d24f316fb722d7a1292e2913f0cc196b29ffd611"
+checksum = "f93ab6289c7b344a8a9f60f88d80aa20032336fe78da341afc91c8a2341fc75f"
+dependencies = [
+ "autocfg",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-integer"
+version = "0.1.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "225d3389fb3509a24c93f5c29eb6bde2586b98d9f016636dff58d7c6f7569cd9"
+dependencies = [
+ "autocfg",
+ "num-traits",
+]
+
+[[package]]
+name = "num-traits"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "578ede34cf02f8924ab9447f50c28075b4d3e5b269972345e7e0372b38c6cdcd"
 dependencies = [
  "autocfg",
 ]
@@ -390,7 +411,6 @@ dependencies = [
  "enumset",
  "hmac-sha256",
  "nom",
- "openssl",
  "rand",
 ]
 
@@ -398,16 +418,15 @@ dependencies = [
 name = "rtmfp-client"
 version = "0.1.0"
 dependencies = [
- "aes",
- "block-modes",
- "cookie-factory",
- "derive-try-from-primitive",
  "enumset",
  "hmac-sha256",
  "nom",
+ "num-bigint",
+ "num-traits",
  "openssl",
  "rand",
  "rtmfp",
+ "sussy_hellman",
 ]
 
 [[package]]
@@ -434,6 +453,15 @@ name = "strsim"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6446ced80d6c486436db5c078dde11a9f73d42b57fb273121e160b84f63d894c"
+
+[[package]]
+name = "sussy_hellman"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "rand",
+]
 
 [[package]]
 name = "syn"

@@ -2,7 +2,7 @@ use crate::encode::Encode;
 use crate::static_encode;
 use crate::vlu::VLU;
 use crate::OptionType;
-use crate::{encode_raw, RTMFPOption, StaticEncode};
+use crate::{encode_raw, RTMFPOption};
 use cookie_factory::bytes::be_u8;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};
