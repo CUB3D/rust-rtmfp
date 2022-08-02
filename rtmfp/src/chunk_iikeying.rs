@@ -5,7 +5,7 @@ use crate::session_key_components::{Decode, SessionKeyingComponent};
 use crate::vlu::VLU;
 use crate::StaticEncode;
 use crate::{encode_raw, ChunkContent};
-use cookie_factory::bytes::be_u32;
+use cookie_factory::bytes::{be_u32, be_u8};
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
@@ -47,6 +47,7 @@ impl IIKeyingChunkBody {
 }
 impl<T: Write> Encode<T> for IIKeyingChunkBody {
     fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
+        println!("SKIC_LEN = {:X}", self.skic_length.value);
         tuple((
             be_u32(self.initiator_session_id),
             self.cookie_length.encode(),
@@ -54,8 +55,19 @@ impl<T: Write> Encode<T> for IIKeyingChunkBody {
             self.cert_length.encode(),
             //TODO: compute above length
             move |out| self.initiator_certificate.encode(out),
-            self.skic_length.encode(),
-            move |out| self.session_key_initiator_component.encode(out),
+            // self.skic_length.encode(),
+
+
+            VLU::from(self.signature.len() + 2).encode(),
+            //TODO: this is because our key is too long, but we should be using 2 bytes here
+            // Assuming this is another bug in VLU encoding?
+            be_u8(0),
+            be_u8(0),
+
+
+
+            // move |out| self.session_key_initiator_component.encode(out),
+
             encode_raw(&self.signature),
         ))(w)
     }

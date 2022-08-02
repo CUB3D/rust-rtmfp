@@ -1,6 +1,8 @@
 use cookie_factory::bytes::be_u8;
 use cookie_factory::SerializeFn;
 use std::io::Write;
+use cookie_factory::sequence::tuple;
+use crate::encode_raw;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 /// RFC7016[2.1.2], Variable Length Unsigned Integer
@@ -22,10 +24,9 @@ impl VLU {
             i = j;
 
             value *= 128;
-            value += (v & 0b01111111) as u64;
+            value += (v & 0b0111_1111) as u64;
             pos += 1;
-
-            if v & 0b10000000 == 0 {
+            if v & 0b1000_0000 == 0 {
                 break;
             }
         }
@@ -39,10 +40,39 @@ impl VLU {
     }
 
     pub fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
-        if self.value >= 0xFF {
-            panic!();
+
+        let mut bytes = Vec::new();
+
+        if self.value < 0x80 {
+            bytes.push(self.value as u8);
+        } else if self.value >= 0x80 && self.value < 8192 {
+            bytes.push((((self.value >> 7) & 0b0111_1111) | 0b1000_0000) as u8);
+            bytes.push((self.value & 0b0111_1111) as u8);
+        } else {
+            panic!()
+        };
+
+        // printlnt!("bytes of {} = {:?}", self.value, bytes);
+        let (_, x) = Self::decode(bytes.as_slice()).unwrap();
+        assert_eq!(x.value, self.value);
+
+        return move |out| {
+            encode_raw(&bytes)(out)
         }
-        be_u8((self.value & 0xFF) as u8)
+
+        /*return move |out| {
+            if self.value & 0b1000_0000 != 0 {
+                let t = &[(self.value & 0b1111_1111) as u8, ((self.value >> 7) & 0b0111_1111) as u8];
+                let x = Self::decode(t.as_slice()).unwrap();
+                println!("{} = {}", self.value, x.1.value);
+
+                tuple((be_u8(((self.value & 0b0111_1111) | 0b1000_0000) as u8), be_u8(((self.value >> 8) & 0b0111_1111) as u8)))(out)
+            } else {
+                be_u8((self.value & 0b0111_1111) as u8)(out)
+            }
+        };*/
+
+
     }
 }
 

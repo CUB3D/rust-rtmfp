@@ -14,6 +14,9 @@ impl KeyPair {
         let dh = dh.generate_key().unwrap();
         let public_key = dh.public_key();
         let public_key_bytes = public_key.to_vec();
+        assert_eq!(BigNum::from_slice(&public_key_bytes).unwrap(), public_key.to_owned().unwrap());
+
+        println!("pk len = {:X?}", public_key_bytes.len());
 
         Self {
             dh,
@@ -24,7 +27,7 @@ impl KeyPair {
     /// Construct the shared key, using the public key from the other party
     pub fn derive_shared_key(self, their_key_bytes: Vec<u8>) -> Vec<u8> {
         let public_key_bignum = BigNum::from_slice(&their_key_bytes).unwrap();
-        let shared_key = self.dh.compute_key(&public_key_bignum).unwrap();
+        let shared_key = self.dh.compute_key(public_key_bignum.as_ref()).unwrap();
         shared_key
     }
 }

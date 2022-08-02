@@ -21,6 +21,8 @@ impl<T: Write> Encode<T> for FlashProfilePlainPacket {
 
         let checksum = checksum::checksum(&bytes);
 
+        println!("CHK = {}", checksum);
+
         tuple((be_u16(checksum), self.packet.encode()))(w)
     }
 }

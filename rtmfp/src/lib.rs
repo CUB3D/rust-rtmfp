@@ -38,6 +38,7 @@ type Aes128Cbc = Cbc<Aes128, NoPadding>;
 extern crate derive_try_from_primitive;
 #[macro_use]
 extern crate enumset;
+extern crate core;
 
 #[macro_export]
 macro_rules! static_encode {
@@ -306,6 +307,7 @@ impl Packet {
     pub fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
         tuple((
             move |out| self.flags.encode(out),
+            //TODO: are these timestamps mutally exclusive
             cond(self.timestamp.is_some(), move |out| {
                 be_u16(self.timestamp.unwrap())(out)
             }),
@@ -374,6 +376,8 @@ impl Multiplex {
     ) -> impl SerializeFn<W> + 'a {
         let v = vec![];
         let (bytes, _size) = gen(move |out| self.packet.encode(out), v).unwrap();
+
+        println!("Bytes before encrypt = {:X?}", bytes);
 
         move |out| {
             let mut bytes: Vec<u8> = bytes.to_vec();

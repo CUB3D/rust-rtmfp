@@ -32,7 +32,7 @@ fn main() -> std::io::Result<()> {
 
 
         let mut our_tag = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        thread_rng().fill(&mut our_tag);
+        //thread_rng().fill(&mut our_tag);
 
         let m = Multiplex {
             session_id: 0,
@@ -65,6 +65,9 @@ fn main() -> std::io::Result<()> {
 
         let (m2, srv) = stream.read().expect("m2");
 
+        //println!("Got m2: {:#?}", m2.packet.packet.chunks);
+
+        // They send back Tag, Cookie and RCert
         let their_nonce = get_extra_randomness(
             m2.clone()
                 .packet
@@ -82,7 +85,7 @@ fn main() -> std::io::Result<()> {
         .extra_randomness;
 
         // println!("Got multiplex response: {:?}", m2);
-        println!("Thair nonce: {:?}", their_nonce);
+        //println!("Thair nonce: {:?}", their_nonce);
 
         let rec_body = m2
             .packet
@@ -99,9 +102,31 @@ fn main() -> std::io::Result<()> {
         //TODO: sending wrong public key size here
 
         // let our_nonce = b"AAAAAAAA".to_vec();
-        // let our_nonce = their_nonce.to_vec();
+        let our_nonce = their_nonce.to_vec();
 
         // skic must only have a ephemeral public key and extra randomness, cert must be empty
+
+        let mut body = IIKeyingChunkBody::new(
+            0x69,
+            rec_body.cookie,
+            FlashCertificate {
+                cannonical: vec![],
+                remainder: vec![],
+            },
+            vec![
+                EphemeralDiffieHellmanPublicKeyBody {
+                    group_id: 2.into(),
+                    public_key: keypair.public_key.clone(),
+                }
+                    .into(),
+                /*ExtraRandomnessBody {
+                    extra_randomness: our_nonce.clone(),
+                }
+                .into(),*/
+            ],
+        );
+        body.signature = keypair.public_key.clone();
+
         let m = Multiplex {
             session_id: 0,
             packet: FlashProfilePlainPacket {
@@ -114,31 +139,17 @@ fn main() -> std::io::Result<()> {
                     ),
                     timestamp: Some(0),
                     timestamp_echo: None,
-                    chunks: vec![IIKeyingChunkBody::new(
-                        0,
-                        rec_body.cookie,
-                        FlashCertificate {
-                            cannonical: vec![],
-                            remainder: vec![],
-                        },
-                        vec![
-                            EphemeralDiffieHellmanPublicKeyBody {
-                                group_id: 2.into(),
-                                public_key: keypair.public_key.clone(),
-                            }
-                            .into(),
-                            ExtraRandomnessBody {
-                                extra_randomness: our_nonce.clone(),
-                            }
-                            .into(),
-                        ],
-                    )
-                    .into()],
+                    chunks: vec![body.into()],
                 },
             },
         };
 
         stream.send(m, srv);
+
+        println!("{:?}", &keypair.public_key[0..=32]);
+        println!("{:?}", &keypair.public_key[33..=64]);
+        println!("{:?}", &keypair.public_key[65..=96]);
+        println!("{:?}", &keypair.public_key[97..=127]);
 
         println!("Waiting for stage 4");
 
@@ -160,6 +171,13 @@ fn main() -> std::io::Result<()> {
         )
         .unwrap()
         .public_key;
+
+        println!("len = {}", their_key_bytes.len());
+
+        println!("{:?}", &their_key_bytes[0..=32]);
+        println!("{:?}", &their_key_bytes[33..=64]);
+        println!("{:?}", &their_key_bytes[65..=96]);
+        println!("{:?}", &their_key_bytes[97..=127]);
 
         let responder_session_id = stage_4
             .clone()
