@@ -16,3 +16,6 @@ sussy_hellman = { path = "../sussy_hellman" }
 openssl = { version = "0.10.41"}
 num-bigint = "0.4.3"
 num-traits = "0.2.15"
+
+tui = "0.18"
+crossterm = "0.23"

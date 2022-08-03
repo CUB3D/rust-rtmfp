@@ -216,6 +216,7 @@ impl Chunk {
         let (i, chunk_type) = nom::number::complete::be_u8(i)?;
         let (i, chunk_length) = nom::number::complete::be_u16(i)?;
 
+
         let i = i;
 
         if chunk_type == ChunkType::ResponderInitialKeying as u8 {
@@ -334,13 +335,11 @@ impl Packet {
             i = j;
         }
 
+        println!("i = {:?}", i);
+
         let (i, mut chunks) = nom::multi::many0(Chunk::decode)(i)?;
 
-        if let Some(lastc) = chunks.last() {
-            if lastc.chunk_length == 0 {
-                chunks.pop();
-            }
-        }
+        println!("chunks = {:?}", chunks);
 
         if chunks.len() > 1 {
             eprintln!(
@@ -383,9 +382,7 @@ impl Multiplex {
                 bytes.push(0);
             }
 
-                //println!("Encode multiplex = {:X?}", bytes);
             if let Some(key) = encryption_key {
-                //println!("Bytes = {:?}", bytes);
 
                 let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
                 let cipher = Aes128Cbc::new_var(key, &iv).unwrap();
@@ -393,10 +390,6 @@ impl Multiplex {
                 let encrypted = cipher.encrypt_vec(&bytes);
                 bytes = encrypted;
             }
-
-            //println!("Encrypted multiplex = {:X?}", bytes);
-
-           // println!("bytes before scrable: {:X?}", bytes);
 
             let first_word: u32 = ((bytes[0] as u32) << 24)
                 | ((bytes[1] as u32) << 16)
@@ -433,6 +426,8 @@ impl Multiplex {
         let cipher = Aes128Cbc::new_var(decryption_key, &iv).unwrap();
         let decrypted = cipher.decrypt(&mut mut_i).unwrap().to_vec();
 
+        println!("Decrypted = {:X?}", decrypted);
+
         let (_, flash_packet) = FlashProfilePlainPacket::decode(&decrypted).unwrap();
 
         Ok((
@@ -447,6 +442,7 @@ impl Multiplex {
 
 #[cfg(test)]
 pub mod test {
+    use nom::AsBytes;
     use crate::endpoint_discriminator::AncillaryDataBody;
     use crate::flash_certificate::FlashCertificate;
     use crate::packet::PacketMode;
@@ -495,6 +491,17 @@ pub mod test {
 
         assert_eq!(dec, m);
         assert_eq!(i, &[]);
+    }
+
+    #[test]
+    pub fn test1 () {
+
+        let p: Chunk =
+            crate::PingBody {
+            message: b"Hello".as_bytes().to_vec(),
+        }.into();
+        let bytes = Chunk::encode(&p);
+        println!("p = {:?}", bytes);
     }
 
     #[test]
