@@ -263,7 +263,7 @@ impl Chunk {
         //         },
         //     ))
         } else {
-            let chunk_type_x: ChunkType = chunk_type.try_into().unwrap();
+            let chunk_type_x: ChunkType = chunk_type.try_into().expect(&format!("Unknown chunk type 0x{:X?}", chunk_type));
             let (i, payload) = nom::bytes::complete::take(chunk_length)(i)?;
 
             let payload: ChunkContent = match chunk_type_x {
@@ -385,7 +385,7 @@ impl Multiplex {
 
                 //println!("Encode multiplex = {:X?}", bytes);
             if let Some(key) = encryption_key {
-                println!("Bytes = {:?}", bytes);
+                //println!("Bytes = {:?}", bytes);
 
                 let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
                 let cipher = Aes128Cbc::new_var(key, &iv).unwrap();

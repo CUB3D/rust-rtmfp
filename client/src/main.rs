@@ -1,5 +1,8 @@
-
+use std::ffi::{c_int, c_void};
+use std::thread::sleep;
+use std::time::Duration;
 use enumset::EnumSet;
+use hmac_sha256::HMAC;
 
 use nom::AsBytes;
 use num_bigint::BigUint;
@@ -21,16 +24,12 @@ use rtmfp::session_key_components::{
     get_epehemeral_diffie_hellman_public_key, EphemeralDiffieHellmanPublicKeyBody,
     ExtraRandomnessBody,
 };
-use rtmfp::{ChunkContent, IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet};
+use rtmfp::{ChunkContent, IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet, PingReplyBody};
+use rtmfp::encode::StaticEncode;
 
 fn main() -> std::io::Result<()> {
     {
         let mut stream = RTMFPStream::new_client();
-        // let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        // let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        // stream.set_encrypt_key(encrypt_key.to_vec());
-        // stream.set_decrypt_key(decrypt_key.to_vec());
-
 
         let mut our_tag = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         //thread_rng().fill(&mut our_tag);
@@ -64,29 +63,8 @@ fn main() -> std::io::Result<()> {
 
         println!("Wait for stage 2");
 
-        let (m2, srv) = stream.read().expect("m2");
-
-        //println!("Got m2: {:#?}", m2.packet.packet.chunks);
-
         // They send back Tag, Cookie and RCert
-        let their_nonce = get_extra_randomness(
-            m2.clone()
-                .packet
-                .packet
-                .chunks
-                .first()
-                .unwrap()
-                .payload
-                .get_rhello()
-                .unwrap()
-                .responder_certificate
-                .cannonical,
-        )
-        .unwrap()
-        .extra_randomness;
-
-        // println!("Got multiplex response: {:?}", m2);
-        //println!("Thair nonce: {:?}", their_nonce);
+        let (m2, srv) = stream.read().expect("m2");
 
         let rec_body = m2
             .packet
@@ -103,13 +81,9 @@ fn main() -> std::io::Result<()> {
         let openssl_bn_pub_key = BigNum::from_hex_str(&pub_key_hex).unwrap();
         let public_key_bytes = openssl_bn_pub_key.to_vec();
 
-        //TODO: sending wrong public key size here
-
-        // let our_nonce = b"AAAAAAAA".to_vec();
-        let our_nonce = their_nonce.to_vec();
+        let our_nonce = b"ABAB";
 
         // skic must only have a ephemeral public key and extra randomness, cert must be empty
-
         let mut body = IIKeyingChunkBody::new(
             0x69,
             rec_body.cookie,
@@ -123,13 +97,14 @@ fn main() -> std::io::Result<()> {
                     public_key: public_key_bytes.clone(),
                 }
                     .into(),
-                /*ExtraRandomnessBody {
-                    extra_randomness: our_nonce.clone(),
+                ExtraRandomnessBody {
+                    extra_randomness: our_nonce.to_vec(),
                 }
-                .into(),*/
+                .into(),
             ],
         );
-        body.signature = public_key_bytes.clone();// keypair.public_key.clone();
+        body.signature = public_key_bytes.clone();
+        body.nonce = our_nonce.to_vec();
 
         let m = Multiplex {
             session_id: 0,
@@ -149,11 +124,6 @@ fn main() -> std::io::Result<()> {
         };
 
         stream.send(m, srv);
-
-        /*println!("{:?}", &keypair.public_key[0..=32]);
-        println!("{:?}", &keypair.public_key[33..=64]);
-        println!("{:?}", &keypair.public_key[65..=96]);
-        println!("{:?}", &keypair.public_key[97..=127]);*/
 
         println!("Waiting for stage 4");
 
@@ -176,18 +146,20 @@ fn main() -> std::io::Result<()> {
         .unwrap()
         .public_key;
 
-        println!("len = {}", their_key_bytes.len());
-
-        println!("{:?}", &their_key_bytes[0..=32]);
-        println!("{:?}", &their_key_bytes[33..=64]);
-        println!("{:?}", &their_key_bytes[65..=96]);
-        println!("{:?}", &their_key_bytes[97..=127]);
-
         let their_key_bn = BigNum::from_slice(&their_key_bytes).unwrap();
         let their_key_hex = their_key_bn.to_hex_str().unwrap().to_owned();
         let bignum_key = BigUint::from_str_radix(&their_key_hex, 16).unwrap();
         let shared_key = keypair.compute_key(&bignum_key);
-        println!("Shared key hex = {}", shared_key.to_str_radix(16));
+        let shared_key_hex = shared_key.to_str_radix(16);
+        let shared_key_openssl = BigNum::from_hex_str(&shared_key_hex).unwrap();
+        let shared_key_bytes = shared_key_openssl.to_vec();
+
+        println!("Secret hex = {}", shared_key_hex);
+        println!("Init nonce = {:?}", our_nonce);
+
+        let their_nonce = stage_4.packet.packet.chunks.first().unwrap().payload.get_rikeying().unwrap().session_key_responder_component.encode_static();
+
+        println!("Server nonce (size = {}) = {:X?}", their_nonce.len(), their_nonce);
 
 
         let responder_session_id = stage_4
@@ -202,21 +174,21 @@ fn main() -> std::io::Result<()> {
             .unwrap()
             .responder_session_id;
 
-        let _ = std::fs::write("./server-pubkey.bin", &their_key_bytes).unwrap();
-        let shared_key = &[];//keypair.derive_shared_key(their_key_bytes);
+
         // Compute packet keys
-        let _encrypt_key = &hmac_sha256::HMAC::mac(
+        let encrypt_key = &hmac_sha256::HMAC::mac(
             hmac_sha256::HMAC::mac(their_nonce.as_bytes(), our_nonce.as_bytes()).as_bytes(),
-            &shared_key,
-        )[..16];
-        let _decrypt_key = &hmac_sha256::HMAC::mac(
+            &shared_key_bytes,
+        );
+        let decrypt_key = &hmac_sha256::HMAC::mac(
             hmac_sha256::HMAC::mac(our_nonce.as_bytes(), their_nonce.as_bytes()).as_bytes(),
-            &shared_key,
-        )[..16];
-        let encrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let decrypt_key = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        stream.set_encrypt_key(encrypt_key.to_vec());
-        stream.set_decrypt_key(decrypt_key.to_vec());
+            &shared_key_bytes,
+        );
+        println!("Got enc key: {:?}", encrypt_key);
+        println!("Got dec key: {:?}", decrypt_key);
+
+         stream.set_encrypt_key(decrypt_key[..16].to_vec());
+         stream.set_decrypt_key(encrypt_key[..16].to_vec());
 
         println!("Handshake done\n\n\n");
         stream.set_timeout();
@@ -224,7 +196,7 @@ fn main() -> std::io::Result<()> {
         let flow_start_packet = Multiplex {
             session_id: responder_session_id,
             packet: FlashProfilePlainPacket {
-                session_sequence_number: 0,
+                session_sequence_number: 1,
                 checksum: 0,
                 packet: Packet {
                     flags: PacketFlags::new(
@@ -254,11 +226,52 @@ fn main() -> std::io::Result<()> {
         };
         stream.send(flow_start_packet, srv);
 
-        loop {
-            if let Some((packet, srv)) = stream.read() {
-                println!("Got new packet {:?}", packet);
+        let (res, srv) = stream.read().unwrap();
 
-                let chunks = packet.packet.packet.chunks;
+        println!("res = {:?}", res);
+
+        stream.set_timeout();
+
+        let ping = Multiplex {
+            session_id: responder_session_id,
+            packet: FlashProfilePlainPacket {
+                session_sequence_number: 0,
+                checksum: 0,
+                packet: Packet {
+                    flags: PacketFlags::new(
+                        PacketMode::Initiator,
+                        PacketFlag::TimestampPresent.into(),
+                    ),
+                    timestamp: Some(123),
+                    timestamp_echo: None,
+                    chunks: vec![PingBody {
+                        message: b"Hello".as_bytes().to_vec(),
+                    }.into()],
+                },
+            },
+        };
+        stream.send(ping, srv);
+
+        let mut buffer = Vec::new();
+
+        loop {
+            let mut buf = [0; 8192];
+
+            if let Ok((amt, src)) = stream.socket.recv_from(&mut buf) {
+                // Crop the buffer to the size of the packet
+                let buf = &buf[..amt];
+
+                buffer.extend_from_slice(&buf);
+
+                println!("Got bytes = {:?}", buf);
+            }
+
+            if let Ok((i, packet)) = Multiplex::decode(&buffer, &stream.decryption_key) {
+                println!("Got new packet {:?}", packet);
+               // buffer = i.to_vec();
+                buffer.clear();
+
+                /*let chunks = packet.packet.packet.chunks;
 
                 for chunk in &chunks {
                     match chunk.payload {
@@ -283,11 +296,9 @@ fn main() -> std::io::Result<()> {
                         }
                         _ => {}
                     }
-                }
-            } else {
-                println!("Timeout");
+                }*/
 
-                let _m = Multiplex {
+                let ping = Multiplex {
                     session_id: responder_session_id,
                     packet: FlashProfilePlainPacket {
                         session_sequence_number: 0,
@@ -297,17 +308,17 @@ fn main() -> std::io::Result<()> {
                                 PacketMode::Initiator,
                                 PacketFlag::TimestampPresent.into(),
                             ),
-                            timestamp: Some(0),
+                            timestamp: Some(123),
                             timestamp_echo: None,
                             chunks: vec![PingBody {
-                                message: "Hello".as_bytes().to_vec(),
-                            }
-                            .into()],
+                                message: b"Hello".as_bytes().to_vec(),
+                            }.into()],
                         },
                     },
                 };
+                stream.send(ping, srv);
 
-                // stream.send(m);
+                sleep(Duration::from_micros(100));
             }
         }
     }

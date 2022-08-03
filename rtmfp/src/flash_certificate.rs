@@ -18,6 +18,8 @@ pub struct FlashCertificate {
 
 impl FlashCertificate {
     pub fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
+        println!("FlashCertificate = {:X?}", i);
+
         let mut cannonical = vec![];
 
         let mut i = i;

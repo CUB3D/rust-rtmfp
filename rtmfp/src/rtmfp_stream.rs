@@ -4,9 +4,9 @@ use std::net::{SocketAddr, UdpSocket};
 use std::time::Duration;
 
 pub struct RTMFPStream {
-    socket: UdpSocket,
+    pub socket: UdpSocket,
     encryption_key: Option<Vec<u8>>,
-    decryption_key: Vec<u8>,
+    pub decryption_key: Vec<u8>,
 }
 
 impl RTMFPStream {
@@ -35,18 +35,19 @@ impl RTMFPStream {
     pub fn send(&self, m: Multiplex, dest: SocketAddr) {
         let v = vec![];
         let (bytes, _s2) = gen(m.encode(&self.encryption_key), v).unwrap();
-        println!("Send = {:?}", bytes);
+        println!("Send = {:X?}", bytes);
         // self.socket.send_to(&bytes, dest).unwrap();
         self.socket.send(&bytes).unwrap();
     }
 
     pub fn read(&self) -> Option<(Multiplex, SocketAddr)> {
-        let mut buf = [0; 1024];
+        let mut buf = [0; 8192];
 
         if let Ok((amt, src)) = self.socket.recv_from(&mut buf) {
             // Crop the buffer to the size of the packet
             let buf = &buf[..amt];
             let (_i, m) = Multiplex::decode(buf, &self.decryption_key).unwrap();
+            println!("Remaining: {:X?}", _i);
             Some((m, src))
         } else {
             None

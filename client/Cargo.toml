@@ -13,6 +13,6 @@ enumset = "1.0.1"
 rand = "0.8.5"
 hmac-sha256 = "1.1.4"
 sussy_hellman = { path = "../sussy_hellman" }
-openssl = "0.10.41"
+openssl = { version = "0.10.41"}
 num-bigint = "0.4.3"
 num-traits = "0.2.15"

@@ -21,6 +21,7 @@ pub struct IIKeyingChunkBody {
     pub skic_length: VLU,
     pub session_key_initiator_component: SessionKeyingComponent,
     pub signature: Vec<u8>,
+    pub nonce: Vec<u8>,
 }
 
 impl IIKeyingChunkBody {
@@ -42,6 +43,7 @@ impl IIKeyingChunkBody {
             skic_length: skic_length.into(),
             session_key_initiator_component: skic,
             signature: vec![],
+            nonce: vec![],
         }
     }
 }
@@ -67,8 +69,10 @@ impl<T: Write> Encode<T> for IIKeyingChunkBody {
 
 
             // move |out| self.session_key_initiator_component.encode(out),
-
             encode_raw(&self.signature),
+
+            VLU::from(self.nonce.len()).encode(),
+            encode_raw(&self.nonce)
         ))(w)
     }
 }
@@ -104,6 +108,7 @@ impl Decode for IIKeyingChunkBody {
                 skic_length,
                 session_key_initiator_component,
                 signature: signature.to_vec(),
+                nonce: vec![],
             },
         ))
     }
@@ -135,6 +140,7 @@ pub mod test {
             skic_length: 0.into(),
             session_key_initiator_component: vec![],
             signature: vec![],
+            nonce: vec![],
         };
         let enc = packet.encode_static();
         let (i, dec) = IIKeyingChunkBody::decode(&enc).unwrap();
