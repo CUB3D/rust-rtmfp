@@ -1,7 +1,12 @@
+extern crate core;
+#[macro_use]
+extern crate derive_try_from_primitive;
+#[macro_use]
+extern crate enumset;
 use cookie_factory::bytes::{be_u16, be_u32, be_u8};
 use cookie_factory::multi::all;
 use cookie_factory::sequence::tuple;
-use cookie_factory::{gen, GenResult, SerializeFn, WriteContext};
+use cookie_factory::{r#gen, GenResult, SerializeFn, WriteContext};
 use std::io::Write;
 
 pub use crate::chunk_ihello::IHelloChunkBody;
@@ -22,29 +27,24 @@ use crate::rtmfp_option::OptionType;
 use crate::rtmfp_option::RTMFPOption;
 use crate::session_key_components::Decode;
 
-use aes::Aes128;
-use block_modes::block_padding::NoPadding;
-use block_modes::{BlockMode, Cbc};
 use cookie_factory::combinator::cond;
 
 
+use aes::cipher::block_padding::NoPadding;
+use aes::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use std::convert::TryInto;
+use parse::ParseBytes;
 
-type Aes128Cbc = Cbc<Aes128, NoPadding>;
-
-#[macro_use]
-extern crate derive_try_from_primitive;
-#[macro_use]
-extern crate enumset;
-extern crate core;
+type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
+type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 
 #[macro_export]
 macro_rules! static_encode {
     ($name: ident) => {
-        impl crate::StaticEncode for $name {
+        impl $crate::StaticEncode for $name {
             fn encode_static(&self) -> Vec<u8> {
-                let v = vec![];
-                let (bytes, _size) = cookie_factory::gen(move |out| self.encode(out), v).unwrap();
+                let v = Vec::new();
+                let (bytes, _size) = cookie_factory::r#gen(move |out| self.encode(out), v).unwrap();
                 bytes
             }
         }
@@ -267,15 +267,12 @@ impl Chunk {
             let chunk_type_x: ChunkType = chunk_type.try_into().expect(&format!("Unknown chunk type 0x{:X?}", chunk_type));
             let (i, payload) = nom::bytes::complete::take(chunk_length)(i)?;
 
+            //TODO: handle incomplete parsing
             let payload: ChunkContent = match chunk_type_x {
-                ChunkType::SessionCloseRequest => {
-                    SessionCloseRequestBody::decode(payload)?.1.into()
-                }
+                ChunkType::SessionCloseRequest => SessionCloseRequestBody::decode(payload)?.1.into(),
                 ChunkType::Ping => PingBody::decode(payload)?.1.into(),
-                ChunkType::PingReply => PingReplyBody::decode(payload)?.1.into(),
-                ChunkType::SessionCloseAcknowledgement => {
-                    SessionCloseAcknowledgementBody::decode(payload)?.1.into()
-                }
+                ChunkType::PingReply => PingReplyBody::parse(payload).unwrap().1.into(),
+                ChunkType::SessionCloseAcknowledgement => SessionCloseAcknowledgementBody::decode(payload)?.1.into(),
                 ChunkType::InitiatorHello => IHelloChunkBody::decode(payload)?.1.into(),
                 ChunkType::ResponderHello => RHelloChunkBody::decode(payload)?.1.into(),
                 ChunkType::InitiatorInitialKeying => IIKeyingChunkBody::decode(payload)?.1.into(),
@@ -337,7 +334,7 @@ impl Packet {
 
         println!("i = {:?}", i);
 
-        let (i, mut chunks) = nom::multi::many0(Chunk::decode)(i)?;
+        let (i, chunks) = nom::multi::many0(Chunk::decode)(i)?;
 
         println!("chunks = {:?}", chunks);
 
@@ -370,25 +367,28 @@ impl Multiplex {
         &'a self,
         encryption_key: &'b Option<Vec<u8>>,
     ) -> impl SerializeFn<W> + 'a {
-        let v = vec![];
-        let (bytes, _size) = gen(move |out| self.packet.encode(out), v).unwrap();
+        let v = Vec::new();
+        let (bytes, _size) = r#gen(move |out| self.packet.encode(out), v).unwrap();
 
-        println!("Bytes before encrypt = {:X?}", bytes);
+        tracing::debug!("Bytes before encrypt = {:X?}", bytes);
 
         move |out| {
             let mut bytes: Vec<u8> = bytes.to_vec();
 
-            while bytes.len() % 16 != 0 {
+            while !bytes.len().is_multiple_of(16) {
                 bytes.push(0);
             }
 
-            if let Some(key) = encryption_key {
+            if let Some(keyv) = encryption_key {
+                let mut key: [u8; 16] = [0u8; 16];
+                key.copy_from_slice(keyv);
 
                 let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-                let cipher = Aes128Cbc::new_var(key, &iv).unwrap();
+                let cipher = Aes128CbcEnc::new(&key.into(), &iv.into());
 
-                let encrypted = cipher.encrypt_vec(&bytes);
-                bytes = encrypted;
+                let l = bytes.len();
+                let encrypted = cipher.encrypt_padded_mut::<NoPadding>(&mut bytes, l).unwrap();
+                bytes = encrypted.to_vec();
             }
 
             let first_word: u32 = ((bytes[0] as u32) << 24)
@@ -400,7 +400,7 @@ impl Multiplex {
                 | ((bytes[6] as u32) << 8)
                 | (bytes[7] as u32);
 
-            let scrambled_session_id = (self.session_id as u32) ^ (first_word ^ second_word);
+            let scrambled_session_id = (self.session_id) ^ (first_word ^ second_word);
 
             let x = tuple((be_u32(scrambled_session_id), encode_raw(&bytes)))(out);
 
@@ -422,11 +422,14 @@ impl Multiplex {
 
         // i must be decrypted
 
-        let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let cipher = Aes128Cbc::new_var(decryption_key, &iv).unwrap();
-        let decrypted = cipher.decrypt(&mut mut_i).unwrap().to_vec();
+        let mut key: [u8; 16] = [0u8; 16];
+        key.copy_from_slice(decryption_key);
 
-        println!("Decrypted = {:X?}", decrypted);
+        let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let cipher = Aes128CbcDec::new(&key.into(), &iv.into());
+        let decrypted = cipher.decrypt_padded_mut::<NoPadding>(&mut mut_i).unwrap().to_vec();
+
+        tracing::debug!("Decrypted packet = {:X?}", decrypted);
 
         let (_, flash_packet) = FlashProfilePlainPacket::decode(&decrypted).unwrap();
 
@@ -442,19 +445,17 @@ impl Multiplex {
 
 #[cfg(test)]
 pub mod test {
-    use nom::AsBytes;
     use crate::endpoint_discriminator::AncillaryDataBody;
-    use crate::flash_certificate::FlashCertificate;
     use crate::packet::PacketMode;
-    use crate::session_key_components::SessionKeyingComponent;
     use crate::{
         Chunk, ChunkContent, Decode, Encode, FlashProfilePlainPacket, IHelloChunkBody, Multiplex,
-        Packet, PacketFlag, PacketFlags, ResponderInitialKeyingChunkBody, StaticEncode,
+        Packet, PacketFlag, PacketFlags,
     };
+    use nom::AsBytes;
 
     #[test]
     #[ignore]
-    pub fn multiplex_roundtrip() {
+    pub fn multiplex_round_trip() {
         let m = Multiplex {
             session_id: 0,
             packet: FlashProfilePlainPacket {
@@ -469,8 +470,8 @@ pub mod test {
                     timestamp_echo: None,
                     chunks: vec![IHelloChunkBody {
                         epd_length: 2.into(),
-                        endpoint_descriminator: vec![AncillaryDataBody {
-                            ancillary_data: vec![],
+                        endpoint_discriminator: vec![AncillaryDataBody {
+                            ancillary_data: Vec::new(),
                         }
                         .into()],
                         tag: vec![0u8; 16],
@@ -480,9 +481,9 @@ pub mod test {
             },
         };
 
-        let v = vec![];
+        let v = Vec::new();
         let (bytes, _s2) =
-            cookie_factory::gen(m.encode(&Some(b"Adobe Systems 02".to_vec())), v).unwrap();
+            cookie_factory::r#gen(m.encode(&Some(b"Adobe Systems 02".to_vec())), v).unwrap();
 
         let (i, dec) = Multiplex::decode(&bytes, b"Adobe Systems 02").unwrap();
 
@@ -500,12 +501,13 @@ pub mod test {
             crate::PingBody {
             message: b"Hello".as_bytes().to_vec(),
         }.into();
-        let bytes = Chunk::encode(&p);
+        let v = Vec::new();
+        let bytes = cookie_factory::r#gen(Chunk::encode(&p), v).unwrap();
         println!("p = {:?}", bytes);
     }
 
     #[test]
-    pub fn packet_roundtrip() {
+    pub fn packet_round_trip() {
         let m = Packet {
             flags: PacketFlags {
                 flags: PacketFlag::TimeCritical.into(),
@@ -513,11 +515,11 @@ pub mod test {
             },
             timestamp: None,
             timestamp_echo: None,
-            chunks: vec![],
+            chunks: Vec::new(),
         };
 
-        let v = vec![];
-        let (enc, _size) = cookie_factory::gen(m.encode(), v).unwrap();
+        let v = Vec::new();
+        let (enc, _size) = cookie_factory::r#gen(m.encode(), v).unwrap();
 
         let (i, dec) = Packet::decode(&enc).unwrap();
 
@@ -529,15 +531,15 @@ pub mod test {
     }
 
     #[test]
-    pub fn chunk_roundtrip() {
+    pub fn chunk_round_trip() {
         let m = Chunk {
             chunk_type: 0,
             chunk_length: 0,
-            payload: ChunkContent::Raw(vec![]),
+            payload: ChunkContent::Raw(Vec::new()),
         };
 
-        let v = vec![];
-        let (enc, _size) = cookie_factory::gen(m.encode(), v).unwrap();
+        let v = Vec::new();
+        let (enc, _size) = cookie_factory::r#gen(m.encode(), v).unwrap();
 
         let (i, dec) = Chunk::decode(&enc).unwrap();
 
@@ -547,19 +549,4 @@ pub mod test {
         assert_eq!(dec, m);
         assert_eq!(i, &[]);
     }
-
-    /*#[test]
-    pub fn chunkcontent_roundtrip() {
-        let m = ChunkContent::Raw(vec![]);
-
-        let v = m.encode_static();
-
-        let (i, dec) = ChunkContent::fr(&enc).unwrap();
-
-        println!("{:#?}", m);
-        println!("{:#?}", dec);
-
-        assert_eq!(dec, m);
-        assert_eq!(i, &[]);
-    }*/
 }

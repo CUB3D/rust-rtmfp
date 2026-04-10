@@ -42,8 +42,8 @@ impl IIKeyingChunkBody {
             initiator_certificate: certificate,
             skic_length: skic_length.into(),
             session_key_initiator_component: skic,
-            signature: vec![],
-            nonce: vec![],
+            signature: Vec::new(),
+            nonce: Vec::new(),
         }
     }
 }
@@ -108,7 +108,7 @@ impl Decode for IIKeyingChunkBody {
                 skic_length,
                 session_key_initiator_component,
                 signature: signature.to_vec(),
-                nonce: vec![],
+                nonce: Vec::new(),
             },
         ))
     }
@@ -122,25 +122,24 @@ impl From<IIKeyingChunkBody> for ChunkContent {
 
 #[cfg(test)]
 pub mod test {
-    use crate::endpoint_discriminator::AncillaryDataBody;
     use crate::flash_certificate::FlashCertificate;
     use crate::{Decode, IIKeyingChunkBody, StaticEncode};
 
     #[test]
-    pub fn iikeying_roundtrip() {
+    pub fn iikeying_round_trip() {
         let packet = IIKeyingChunkBody {
             initiator_session_id: 0,
             cookie_length: 0.into(),
-            cookie_echo: vec![],
+            cookie_echo: Vec::new(),
             cert_length: 0.into(),
             initiator_certificate: FlashCertificate {
-                cannonical: vec![],
-                remainder: vec![],
+                canonical: Vec::new(),
+                remainder: Vec::new(),
             },
             skic_length: 0.into(),
-            session_key_initiator_component: vec![],
-            signature: vec![],
-            nonce: vec![],
+            session_key_initiator_component: Vec::new(),
+            signature: Vec::new(),
+            nonce: Vec::new(),
         };
         let enc = packet.encode_static();
         let (i, dec) = IIKeyingChunkBody::decode(&enc).unwrap();

@@ -68,20 +68,19 @@ impl From<RHelloChunkBody> for ChunkContent {
 
 #[cfg(test)]
 pub mod test {
-    use crate::endpoint_discriminator::AncillaryDataBody;
     use crate::flash_certificate::FlashCertificate;
     use crate::{Decode, RHelloChunkBody, StaticEncode};
 
     #[test]
-    pub fn rhello_roundtrip() {
+    pub fn rhello_round_trip() {
         let packet = RHelloChunkBody {
             tag_length: 0,
-            tag_echo: vec![],
+            tag_echo: Vec::new(),
             cookie_length: 0,
-            cookie: vec![],
+            cookie: Vec::new(),
             responder_certificate: FlashCertificate {
-                cannonical: vec![],
-                remainder: vec![],
+                canonical: Vec::new(),
+                remainder: Vec::new(),
             },
         };
         let enc = packet.encode_static();

@@ -4,6 +4,7 @@ use crate::ChunkContent;
 use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
 use std::io::Write;
+use parse::ParseBytes;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PingReplyBody {
@@ -16,16 +17,17 @@ impl<T: Write> Encode<T> for PingReplyBody {
     }
 }
 static_encode!(PingReplyBody);
-impl Decode for PingReplyBody {
-    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
-        Ok((
-            &[],
-            Self {
-                message_echo: i.to_vec(),
-            },
-        ))
+
+//TODO: support errors
+impl ParseBytes<'_> for PingReplyBody {
+    fn parse(i: &[u8]) -> Result<(&[u8], Self), ()>
+    where
+        Self: Sized
+    {
+        Ok((&[], PingReplyBody { message_echo: i.to_vec() }))
     }
 }
+
 impl From<PingReplyBody> for ChunkContent {
     fn from(s: PingReplyBody) -> Self {
         ChunkContent::PingReply(s)
@@ -34,15 +36,16 @@ impl From<PingReplyBody> for ChunkContent {
 
 #[cfg(test)]
 pub mod test {
+    use parse::ParseBytes;
     use crate::{Decode, PingReplyBody, StaticEncode};
 
     #[test]
-    pub fn pingreply_roundtrip() {
+    pub fn pingreply_round_trip() {
         let packet = PingReplyBody {
             message_echo: vec![1, 2, 3, 4],
         };
         let enc = packet.encode_static();
-        let (i, dec) = PingReplyBody::decode(&enc).unwrap();
+        let (i, dec) = PingReplyBody::parse(&enc).unwrap();
         assert_eq!(dec, packet);
         assert_eq!(i, &[]);
     }

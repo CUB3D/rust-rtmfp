@@ -1,0 +1,10 @@
+- warnings / clippy / fmt
+- 2024 edition
+- tests
+- docs
+- no cookie factory
+- no nom
+- readme
+- no panics
+- fixed sized key
+- async?

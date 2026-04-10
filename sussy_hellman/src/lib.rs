@@ -23,7 +23,7 @@ extern crate core;
 use num_bigint::BigUint;
 use num_traits::{Num, ToPrimitive};
 use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::RngExt;
 
 #[derive(Clone)]
 /// The shared parameters used to generate the keys
@@ -63,7 +63,7 @@ impl KeyPair {
     /// Note that the upper bound for secret generation is [u128::MAX] due to limitations in `rand`
     pub fn generate(params: KeyPairParams) -> KeyPair {
         // Get a cryptographically secure source of randomness
-        let mut rng = StdRng::from_entropy();
+        let mut rng: StdRng = rand::make_rng();
 
         // The secret in DH must be [1..p-2]
         let secret_upper_bound: BigUint = &params.prime_modulus - BigUint::from(2u8);
@@ -76,7 +76,7 @@ impl KeyPair {
             .unwrap();
 
         // Generate a random secret
-        let random_secret = rng.gen_range(1u128..secret_upper_bound);
+        let random_secret = rng.random_range(1u128..secret_upper_bound);
         let secret = BigUint::from(random_secret);
 
         Self::generate_with_secret(params, secret)

@@ -2,7 +2,7 @@ use crate::encode::Encode;
 use crate::session_key_components::Decode;
 use crate::{checksum, Packet};
 use cookie_factory::bytes::be_u16;
-use cookie_factory::gen;
+use cookie_factory::r#gen;
 use cookie_factory::sequence::tuple;
 use cookie_factory::{GenResult, WriteContext};
 use std::io::Write;
@@ -16,12 +16,12 @@ pub struct FlashProfilePlainPacket {
 
 impl<T: Write> Encode<T> for FlashProfilePlainPacket {
     fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        let v = vec![];
-        let (bytes, _size): (Vec<u8>, u64) = gen(self.packet.encode(), v).unwrap();
+        let v = Vec::new();
+        let (bytes, _size): (Vec<u8>, u64) = r#gen(self.packet.encode(), v).unwrap();
 
         let checksum = checksum::checksum(&bytes);
 
-        println!("CHK = {}", checksum);
+        tracing::debug!("checksum = {}", checksum);
 
         tuple((be_u16(checksum), self.packet.encode()))(w)
     }
@@ -45,17 +45,14 @@ impl Decode for FlashProfilePlainPacket {
 
 #[cfg(test)]
 pub mod test {
-    use crate::endpoint_discriminator::AncillaryDataBody;
-    use crate::flash_certificate::FlashCertificate;
     use crate::packet::PacketMode;
-    use crate::session_key_components::SessionKeyingComponent;
     use crate::{
-        Decode, FlashProfilePlainPacket, Packet, PacketFlag, PacketFlags,
-        ResponderInitialKeyingChunkBody, StaticEncode,
+        Decode, FlashProfilePlainPacket, Packet, PacketFlag, PacketFlags
+        , StaticEncode,
     };
 
     #[test]
-    pub fn flash_profiler_plain_packet_roundtrip() {
+    pub fn flash_profiler_plain_packet_round_trip() {
         let packet = FlashProfilePlainPacket {
             session_sequence_number: 0,
             checksum: 32511,
@@ -66,7 +63,7 @@ pub mod test {
                 },
                 timestamp: None,
                 timestamp_echo: None,
-                chunks: vec![],
+                chunks: Vec::new(),
             },
         };
         let enc = packet.encode_static();

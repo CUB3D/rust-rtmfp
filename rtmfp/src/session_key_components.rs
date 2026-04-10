@@ -1,5 +1,4 @@
 use crate::encode::Encode;
-use crate::static_encode;
 use crate::vlu::VLU;
 use crate::OptionType;
 use crate::{encode_raw, RTMFPOption};
@@ -10,7 +9,7 @@ use nom::IResult;
 use std::io::Write;
 
 pub trait Decode: Sized {
-    fn decode(i: &[u8]) -> nom::IResult<&[u8], Self>;
+    fn decode(i: &[u8]) -> IResult<&[u8], Self>;
 }
 impl<T: Decode> Decode for Vec<T> {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
@@ -20,7 +19,7 @@ impl<T: Decode> Decode for Vec<T> {
 
 pub type SessionKeyingComponent = Vec<RTMFPOption>;
 static_encode!(SessionKeyingComponent);
-pub fn get_epehemeral_diffie_hellman_public_key(
+pub fn get_ephemeral_diffie_hellman_public_key(
     s: Vec<RTMFPOption>,
 ) -> Option<EphemeralDiffieHellmanPublicKeyBody> {
     s.iter()
@@ -83,7 +82,7 @@ optionable!(
 );
 impl<W: Write> Encode<W> for EphemeralDiffieHellmanPublicKeyBody {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        cookie_factory::sequence::tuple((
+        tuple((
             self.group_id.encode(),
             //TODO:
             encode_raw(&self.public_key),

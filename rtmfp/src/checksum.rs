@@ -1,6 +1,6 @@
 pub fn checksum(bytes: &[u8]) -> u16 {
     let mut bytes = bytes.to_vec();
-    if bytes.len() % 16 != 0 {
+    if !bytes.len().is_multiple_of(16) {
         bytes.push(0);
     }
 

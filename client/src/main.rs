@@ -1,7 +1,5 @@
-use std::env::args;
 use enumset::EnumSet;
-use hmac_sha256::HMAC;
-use std::ffi::{c_int, c_void};
+use std::env::args;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -9,32 +7,30 @@ use nom::AsBytes;
 use num_bigint::BigUint;
 use num_traits::Num;
 use openssl::bn::BigNum;
-use rand::{thread_rng, Rng};
 use rtmfp::chunk_ping::PingBody;
-use rtmfp::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
 use rtmfp::chunk_user_data::{
     UserDataChunk, UserDataChunkFlags, UserDataChunkFragmentControl, UserDataChunkOptionType,
 };
 use rtmfp::encode::StaticEncode;
 use rtmfp::endpoint_discriminator::AncillaryDataBody;
-use rtmfp::flash_certificate::{get_extra_randomness, FlashCertificate};
+use rtmfp::flash_certificate::FlashCertificate;
 use rtmfp::flash_profile_plain_packet::FlashProfilePlainPacket;
 use rtmfp::packet::{PacketFlag, PacketFlags, PacketMode};
 use rtmfp::rtmfp_option::RTMFPOption;
 use rtmfp::rtmfp_stream::RTMFPStream;
 use rtmfp::session_key_components::{
-    get_epehemeral_diffie_hellman_public_key, EphemeralDiffieHellmanPublicKeyBody,
+    get_ephemeral_diffie_hellman_public_key, EphemeralDiffieHellmanPublicKeyBody,
     ExtraRandomnessBody,
 };
-use rtmfp::{ChunkContent, IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet, PingReplyBody};
+use rtmfp::{IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet};
 
 mod tui_ {
+    use crossterm::event::{Event, KeyCode};
     use std::time::Duration;
-    use crossterm::event::{Event, KeyCode, KeyEvent};
     use tui::backend::CrosstermBackend;
     use tui::layout::{Constraint, Direction, Layout};
-    use tui::Terminal;
     use tui::widgets::{Block, Borders, Paragraph};
+    use tui::Terminal;
 
     pub fn do_tui() -> Result<(), std::io::Error> {
         let stdout = std::io::stdout();
@@ -85,20 +81,28 @@ mod tui_ {
             }
         }
 
-        crossterm::terminal::disable_raw_mode()?;
+        // crossterm::terminal::disable_raw_mode()?;
 
-        Ok(())
+        // Ok(())
     }
 }
 
 fn main() -> std::io::Result<()> {
-    if args().last().unwrap() == "tui" {
+    use tracing_subscriber::EnvFilter;
+
+    tracing_subscriber::fmt::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+
+    if args().next_back().unwrap() == "tui" {
         return tui_::do_tui();
     }
 
     let mut stream = RTMFPStream::new_client();
 
-    let mut our_tag = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let our_tag = [0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     //thread_rng().fill(&mut our_tag);
 
     let m = Multiplex {
@@ -115,8 +119,8 @@ fn main() -> std::io::Result<()> {
                 timestamp_echo: None,
                 chunks: vec![IHelloChunkBody {
                     epd_length: 2.into(),
-                    endpoint_descriminator: vec![AncillaryDataBody {
-                        ancillary_data: vec![],
+                    endpoint_discriminator: vec![AncillaryDataBody {
+                        ancillary_data: Vec::new(),
                     }
                         .into()],
                     tag: our_tag.to_vec(),
@@ -155,8 +159,8 @@ fn main() -> std::io::Result<()> {
         0x69,
         rec_body.cookie,
         FlashCertificate {
-            cannonical: vec![],
-            remainder: vec![],
+            canonical: Vec::new(),
+            remainder: Vec::new(),
         },
         vec![
             EphemeralDiffieHellmanPublicKeyBody {
@@ -198,7 +202,7 @@ fn main() -> std::io::Result<()> {
 
     println!("Got stage4: {:?}", stage_4);
 
-    let their_key_bytes = get_epehemeral_diffie_hellman_public_key(
+    let their_key_bytes = get_ephemeral_diffie_hellman_public_key(
         stage_4
             .packet
             .packet
@@ -295,9 +299,9 @@ fn main() -> std::io::Result<()> {
                     options: vec![RTMFPOption::Option {
                         type_: (UserDataChunkOptionType::PerFlowMetadata as u8).into(),
                         length: 0.into(),
-                        value: vec![],
+                        value: Vec::new(),
                     }],
-                    user_data: vec![],
+                    user_data: Vec::new(),
                 }
                     .into()],
             },
@@ -337,16 +341,16 @@ fn main() -> std::io::Result<()> {
     loop {
         let mut buf = [0; 8192];
 
-        if let Ok((amt, src)) = stream.socket.recv_from(&mut buf) {
+        if let Ok((amt, _src)) = stream.socket.recv_from(&mut buf) {
             // Crop the buffer to the size of the packet
             let buf = &buf[..amt];
 
-            buffer.extend_from_slice(&buf);
+            buffer.extend_from_slice(buf);
 
-            println!("Got bytes = {:?}", buf);
+            tracing::debug!("Got bytes = {:?}", buf);
         }
 
-        if let Ok((i, packet)) = Multiplex::decode(&buffer, &stream.decryption_key) {
+        if let Ok((_i, packet)) = Multiplex::decode(&buffer, &stream.decryption_key) {
             println!("Got new packet {:?}", packet);
             // buffer = i.to_vec();
             buffer.clear();
@@ -403,5 +407,5 @@ fn main() -> std::io::Result<()> {
         }
     }
 
-    Ok(())
+    // Ok(())
 }

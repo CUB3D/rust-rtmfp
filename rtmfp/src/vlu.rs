@@ -50,11 +50,11 @@ impl VLU {
             panic!()
         };
 
-        // printlnt!("bytes of {} = {:?}", self.value, bytes);
+        // println!("bytes of {} = {:?}", self.value, bytes);
         let (_, x) = Self::decode(bytes.as_slice()).unwrap();
         assert_eq!(x.value, self.value);
 
-        return move |out| {
+        move |out| {
             encode_raw(&bytes)(out)
         }
 

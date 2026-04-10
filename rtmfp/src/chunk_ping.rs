@@ -37,7 +37,7 @@ pub mod test {
     use crate::{Decode, PingBody, StaticEncode};
 
     #[test]
-    pub fn ping_roundtrip() {
+    pub fn ping_round_trip() {
         let packet = PingBody {
             message: vec![1, 2, 3, 4],
         };

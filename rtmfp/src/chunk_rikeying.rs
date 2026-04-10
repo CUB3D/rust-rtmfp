@@ -58,18 +58,15 @@ impl From<ResponderInitialKeyingChunkBody> for ChunkContent {
 
 #[cfg(test)]
 pub mod test {
-    use crate::endpoint_discriminator::AncillaryDataBody;
-    use crate::flash_certificate::FlashCertificate;
-    use crate::session_key_components::SessionKeyingComponent;
     use crate::{Decode, ResponderInitialKeyingChunkBody, StaticEncode};
 
     #[test]
-    pub fn rikeying_roundtrip() {
+    pub fn rikeying_round_trip() {
         let packet = ResponderInitialKeyingChunkBody {
             responder_session_id: 0,
             skrc_length: 0.into(),
-            session_key_responder_component: vec![],
-            signature: vec![],
+            session_key_responder_component: Vec::new(),
+            signature: Vec::new(),
         };
         let enc = packet.encode_static();
         let (i, dec) = ResponderInitialKeyingChunkBody::decode(&enc).unwrap();

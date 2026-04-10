@@ -1,6 +1,7 @@
 use crate::ChunkContent;
 
 struct ConnectionState<T> {
+    //TODO: phantom
     data: T,
 }
 impl<T: Default> Default for ConnectionState<T> {

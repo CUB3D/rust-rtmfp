@@ -2,20 +2,21 @@
 name = "rtmfp-client"
 version = "0.1.0"
 authors = ["CUB3D <callumthom11@gmail.com>"]
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rtmfp = { path = "../rtmfp"}
-nom = "5"
-enumset = "1.0.1"
-rand = "0.8.5"
-hmac-sha256 = "1.1.4"
+nom = "7"
+enumset = "=1.0.10"
+hmac-sha256 = "=1.1.14"
 sussy_hellman = { path = "../sussy_hellman" }
-openssl = { version = "0.10.41"}
-num-bigint = "0.4.3"
-num-traits = "0.2.15"
+openssl = { version = "=0.10.76"}
+num-bigint = "=0.4.6"
+num-traits = "=0.2.19"
 
-tui = "0.18"
-crossterm = "0.23"
+tui = "=0.19.0"
+crossterm = "=0.29.0"
+tracing = "=0.1.44"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

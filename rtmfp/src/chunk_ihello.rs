@@ -11,10 +11,10 @@ use std::io::Write;
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// RFC7016[2.3.2] IHello
 /// Sent by the initiator of a session to begin the handshake
-/// Must be in a packed with session id 0, encrypted with the default session key, with pack mode startup
+/// Must be in a packet with session id 0, encrypted with the default session key, with pack mode startup
 pub struct IHelloChunkBody {
     pub epd_length: VLU,
-    pub endpoint_descriminator: EndpointDiscriminator,
+    pub endpoint_discriminator: EndpointDiscriminator,
     pub tag: Vec<u8>,
 }
 
@@ -31,7 +31,7 @@ impl Decode for IHelloChunkBody {
             &[],
             Self {
                 epd_length,
-                endpoint_descriminator: epd,
+                endpoint_discriminator: epd,
                 tag: tag.to_vec(),
             },
         ))
@@ -42,7 +42,7 @@ impl<W: Write> Encode<W> for IHelloChunkBody {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
         tuple((
             self.epd_length.encode(),
-            move |out| self.endpoint_descriminator.encode(out),
+            move |out| self.endpoint_discriminator.encode(out),
             encode_raw(&self.tag),
         ))(w)
     }
@@ -61,14 +61,14 @@ pub mod test {
     use crate::{Decode, IHelloChunkBody, StaticEncode};
 
     #[test]
-    pub fn ihello_roundtrip() {
+    pub fn ihello_round_trip() {
         let packet = IHelloChunkBody {
             epd_length: 2.into(),
-            endpoint_descriminator: vec![AncillaryDataBody {
-                ancillary_data: vec![],
+            endpoint_discriminator: vec![AncillaryDataBody {
+                ancillary_data: Vec::new(),
             }
             .into()],
-            tag: vec![],
+            tag: Vec::new(),
         };
         let enc = packet.encode_static();
         let (i, dec) = IHelloChunkBody::decode(&enc).unwrap();

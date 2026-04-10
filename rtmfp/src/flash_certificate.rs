@@ -12,15 +12,15 @@ use std::io::Write;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FlashCertificate {
-    pub cannonical: Vec<RTMFPOption>,
+    pub canonical: Vec<RTMFPOption>,
     pub remainder: Vec<RTMFPOption>,
 }
 
 impl FlashCertificate {
-    pub fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
+    pub fn decode(i: &[u8]) -> IResult<&[u8], Self> {
         println!("FlashCertificate = {:X?}", i);
 
-        let mut cannonical = vec![];
+        let mut canonical = Vec::new();
 
         let mut i = i;
         loop {
@@ -32,7 +32,7 @@ impl FlashCertificate {
                     if c.is_marker() {
                         break;
                     }
-                    cannonical.push(c);
+                    canonical.push(c);
                 }
                 Err(_e) => {
                     break;
@@ -45,7 +45,7 @@ impl FlashCertificate {
         Ok((
             i,
             Self {
-                cannonical,
+                canonical,
                 remainder,
             },
         ))
@@ -54,7 +54,7 @@ impl FlashCertificate {
 
 impl<W: Write> Encode<W> for FlashCertificate {
     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        all(self.cannonical.iter().map(|c| c.encode_impl()))(w)
+        all(self.canonical.iter().map(|c| c.encode_impl()))(w)
     }
 }
 static_encode!(FlashCertificate);

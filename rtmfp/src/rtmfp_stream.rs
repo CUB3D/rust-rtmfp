@@ -1,5 +1,5 @@
 use crate::Multiplex;
-use cookie_factory::gen;
+use cookie_factory::r#gen;
 use std::net::{SocketAddr, UdpSocket};
 use std::time::Duration;
 
@@ -33,8 +33,8 @@ impl RTMFPStream {
     }
 
     pub fn send(&self, m: Multiplex, dest: SocketAddr) {
-        let v = vec![];
-        let (bytes, _s2) = gen(m.encode(&self.encryption_key), v).unwrap();
+        let v = Vec::new();
+        let (bytes, _s2) = r#gen(m.encode(&self.encryption_key), v).unwrap();
         println!("Send = {:X?}", bytes);
         // self.socket.send_to(&bytes, dest).unwrap();
         self.socket.send(&bytes).unwrap();

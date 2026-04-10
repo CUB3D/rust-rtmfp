@@ -39,8 +39,8 @@ fn main() {
                                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                     ],
                                     responder_certificate: FlashCertificate {
-                                        cannonical: vec![],
-                                        remainder: vec![],
+                                        canonical: Vec::new(),
+                                        remainder: Vec::new(),
                                     },
                                 }
                                 .into()],
@@ -66,7 +66,7 @@ fn main() {
                                 chunks: vec![ResponderInitialKeyingChunkBody {
                                     responder_session_id: 1,
                                     skrc_length: 0.into(),
-                                    session_key_responder_component: vec![],
+                                    session_key_responder_component: Vec::new(),
                                     signature: vec![88],
                                 }
                                 .into()],
