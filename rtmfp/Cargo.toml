@@ -17,4 +17,4 @@ aes = "=0.8.4"
 derive-try-from-primitive = "=1.0.0"
 tracing = "=0.1.44"
 
-parse = { git = "https://github.com/CUB3D/parse-rs" }
+parse = { git = "https://github.com/CUB3D/parse-rs", rev = "eb1a331ca05656a8f2c6b9e4699eadd3f479c339" }

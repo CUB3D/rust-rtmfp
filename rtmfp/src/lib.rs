@@ -33,7 +33,7 @@ use cookie_factory::combinator::cond;
 use aes::cipher::block_padding::NoPadding;
 use aes::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use std::convert::TryInto;
-use parse::ParseBytes;
+use parse::{GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
 
 type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
@@ -84,6 +84,7 @@ pub mod rtmfp_option;
 pub mod rtmfp_stream;
 pub mod session_key_components;
 pub mod vlu;
+mod error;
 
 impl<T: Into<ChunkContent> + StaticEncode + Clone> From<T> for Chunk {
     fn from(t: T) -> Self {
@@ -167,7 +168,11 @@ impl<T: Write> Encode<T> for ChunkContent {
             ChunkContent::IHello(body) => body.encode(w),
             ChunkContent::RIKeying(body) => body.encode(w),
             ChunkContent::Ping(body) => body.encode(w),
-            ChunkContent::PingReply(body) => body.encode(w),
+            ChunkContent::PingReply(body) => {
+                let mut sw = VecSliceWriter::default();
+                body.generate(&mut sw);
+                encode_raw(sw.as_slice())(w)
+            },
             ChunkContent::SessionCloseRequest(body) => body.encode(w),
             ChunkContent::SessionCloseAcknowledgement(body) => body.encode(w),
             ChunkContent::UserData(body) => body.encode(w),
@@ -271,7 +276,7 @@ impl Chunk {
             let payload: ChunkContent = match chunk_type_x {
                 ChunkType::SessionCloseRequest => SessionCloseRequestBody::decode(payload)?.1.into(),
                 ChunkType::Ping => PingBody::decode(payload)?.1.into(),
-                ChunkType::PingReply => PingReplyBody::parse(payload).unwrap().1.into(),
+                ChunkType::PingReply => PingReplyBody::parse(payload)?.1.into(),
                 ChunkType::SessionCloseAcknowledgement => SessionCloseAcknowledgementBody::decode(payload)?.1.into(),
                 ChunkType::InitiatorHello => IHelloChunkBody::decode(payload)?.1.into(),
                 ChunkType::ResponderHello => RHelloChunkBody::decode(payload)?.1.into(),

@@ -1,26 +1,23 @@
-use crate::encode::Encode;
-use crate::session_key_components::Decode;
+use crate::error::RtmfpError;
 use crate::ChunkContent;
-use cookie_factory::{GenResult, WriteContext};
-use nom::IResult;
-use std::io::Write;
-use parse::ParseBytes;
+use parse::{GenerateBytes, ParseBytes, SliceWriter};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PingReplyBody {
     pub message_echo: Vec<u8>,
 }
 
-impl<T: Write> Encode<T> for PingReplyBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        self.message_echo.encode(w)
+impl GenerateBytes for PingReplyBody {
+    fn generate(&self, sw: &mut impl SliceWriter) {
+        sw.put(self.message_echo.as_slice());
     }
+    fn generated_size(&self) -> usize { todo!() }
 }
-static_encode!(PingReplyBody);
 
-//TODO: support errors
 impl ParseBytes<'_> for PingReplyBody {
-    fn parse(i: &[u8]) -> Result<(&[u8], Self), ()>
+    type Error = RtmfpError;
+
+    fn parse(i: &[u8]) -> Result<(&[u8], Self), Self::Error>
     where
         Self: Sized
     {
@@ -36,17 +33,20 @@ impl From<PingReplyBody> for ChunkContent {
 
 #[cfg(test)]
 pub mod test {
-    use parse::ParseBytes;
-    use crate::{Decode, PingReplyBody, StaticEncode};
+    use crate::error::RtmfpError;
+    use crate::{PingReplyBody, StaticEncode};
+    use parse::{GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
 
     #[test]
-    pub fn pingreply_round_trip() {
+    pub fn pingreply_round_trip() -> Result<(), RtmfpError> {
         let packet = PingReplyBody {
             message_echo: vec![1, 2, 3, 4],
         };
-        let enc = packet.encode_static();
-        let (i, dec) = PingReplyBody::parse(&enc).unwrap();
+        let mut sw = VecSliceWriter::default();
+        packet.generate(&mut sw);
+        let (i, dec) = PingReplyBody::parse(sw.as_slice())?;
         assert_eq!(dec, packet);
         assert_eq!(i, &[]);
+        Ok(())
     }
 }
