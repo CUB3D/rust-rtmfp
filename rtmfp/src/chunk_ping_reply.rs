@@ -11,7 +11,6 @@ impl GenerateBytes for PingReplyBody {
     fn generate(&self, sw: &mut impl SliceWriter) {
         sw.put(self.message_echo.as_slice());
     }
-    fn generated_size(&self) -> usize { todo!() }
 }
 
 impl ParseBytes<'_> for PingReplyBody {
@@ -21,7 +20,7 @@ impl ParseBytes<'_> for PingReplyBody {
     where
         Self: Sized
     {
-        Ok((&[], PingReplyBody { message_echo: i.to_vec() }))
+        Ok((&[], Self { message_echo: i.to_vec() }))
     }
 }
 
@@ -34,7 +33,7 @@ impl From<PingReplyBody> for ChunkContent {
 #[cfg(test)]
 pub mod test {
     use crate::error::RtmfpError;
-    use crate::{PingReplyBody, StaticEncode};
+    use crate::{PingReplyBody};
     use parse::{GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
 
     #[test]

@@ -1,11 +1,6 @@
-use crate::encode::Encode;
 use crate::session_key_components::Decode;
 use crate::{checksum, Packet};
-use cookie_factory::bytes::be_u16;
-use cookie_factory::r#gen;
-use cookie_factory::sequence::tuple;
-use cookie_factory::{GenResult, WriteContext};
-use std::io::Write;
+use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FlashProfilePlainPacket {
@@ -13,20 +8,22 @@ pub struct FlashProfilePlainPacket {
     pub checksum: u16,
     pub packet: Packet,
 }
+impl FlashProfilePlainPacket {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut sw1 = VecSliceWriter::default();
+        self.packet.generate(&mut sw1);
 
-impl<T: Write> Encode<T> for FlashProfilePlainPacket {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        let v = Vec::new();
-        let (bytes, _size): (Vec<u8>, u64) = r#gen(self.packet.encode(), v).unwrap();
-
-        let checksum = checksum::checksum(&bytes);
+        let checksum = checksum::checksum(sw1.as_slice());
 
         tracing::debug!("checksum = {}", checksum);
 
-        tuple((be_u16(checksum), self.packet.encode()))(w)
+        let mut sw = VecSliceWriter::default();
+        sw.be_u16(checksum);
+        sw.put(sw1.as_slice());
+        //TODO: helper for this
+        sw.as_slice().to_vec()
     }
 }
-static_encode!(FlashProfilePlainPacket);
 impl Decode for FlashProfilePlainPacket {
     fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
         let (i, checksum) = nom::number::complete::be_u16(i)?;
@@ -48,7 +45,7 @@ pub mod test {
     use crate::packet::PacketMode;
     use crate::{
         Decode, FlashProfilePlainPacket, Packet, PacketFlag, PacketFlags
-        , StaticEncode,
+        ,
     };
 
     #[test]
@@ -66,7 +63,7 @@ pub mod test {
                 chunks: Vec::new(),
             },
         };
-        let enc = packet.encode_static();
+        let enc = packet.encode();
         let (i, dec) = FlashProfilePlainPacket::decode(&enc).unwrap();
         assert_eq!(dec, packet);
         assert_eq!(i, &[]);

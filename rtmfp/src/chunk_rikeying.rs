@@ -1,13 +1,10 @@
-use crate::encode::Encode;
+use crate::encode::StaticEncode;
 
 use crate::session_key_components::{Decode, SessionKeyingComponent};
 use crate::vlu::VLU;
 use crate::ChunkContent;
-use cookie_factory::bytes::be_u32;
-use cookie_factory::sequence::tuple;
-use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
-use std::io::Write;
+use parse::{GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ResponderInitialKeyingChunkBody {
@@ -17,17 +14,23 @@ pub struct ResponderInitialKeyingChunkBody {
     pub signature: Vec<u8>,
 }
 
-impl<T: Write> Encode<T> for ResponderInitialKeyingChunkBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        tuple((
-            be_u32(self.responder_session_id),
-            self.skrc_length.encode(),
-            move |out| self.session_key_responder_component.encode(out),
-            move |out| self.signature.encode(out),
-        ))(w)
+impl StaticEncode for ResponderInitialKeyingChunkBody {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
     }
 }
-static_encode!(ResponderInitialKeyingChunkBody);
+
+impl GenerateBytes for ResponderInitialKeyingChunkBody {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        sw.be_u32(self.responder_session_id);
+        self.skrc_length.generate(sw);
+        self.session_key_responder_component.generate(sw);
+        sw.put(self.signature.as_slice());
+    }
+}
 
 impl Decode for ResponderInitialKeyingChunkBody {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
@@ -36,7 +39,7 @@ impl Decode for ResponderInitialKeyingChunkBody {
 
         let _skrc_bytes = &i[..skrc_length.value as usize];
         //TODO: should this not be skrc_bytes not i
-        let (_empty, session_key_responder_component) = SessionKeyingComponent::decode(i)?;
+        let (_empty, session_key_responder_component) = SessionKeyingComponent::parse(i)?;
         let signature = i[skrc_length.value as usize..].to_vec();
 
         Ok((
@@ -44,7 +47,7 @@ impl Decode for ResponderInitialKeyingChunkBody {
             Self {
                 responder_session_id,
                 skrc_length,
-                session_key_responder_component: session_key_responder_component.to_vec(),
+                session_key_responder_component,
                 signature,
             },
         ))
@@ -58,18 +61,21 @@ impl From<ResponderInitialKeyingChunkBody> for ChunkContent {
 
 #[cfg(test)]
 pub mod test {
-    use crate::{Decode, ResponderInitialKeyingChunkBody, StaticEncode};
+    use crate::session_key_components::SessionKeyingComponent;
+    use crate::{Decode, ResponderInitialKeyingChunkBody};
+    use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
 
     #[test]
     pub fn rikeying_round_trip() {
         let packet = ResponderInitialKeyingChunkBody {
             responder_session_id: 0,
             skrc_length: 0.into(),
-            session_key_responder_component: Vec::new(),
+            session_key_responder_component: SessionKeyingComponent::default(),
             signature: Vec::new(),
         };
-        let enc = packet.encode_static();
-        let (i, dec) = ResponderInitialKeyingChunkBody::decode(&enc).unwrap();
+        let mut sw = VecSliceWriter::default();
+        packet.generate(&mut sw);
+        let (i, dec) = ResponderInitialKeyingChunkBody::decode(sw.as_slice()).unwrap();
         assert_eq!(dec, packet);
         assert_eq!(i, &[]);
     }

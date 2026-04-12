@@ -1,15 +1,12 @@
-use crate::encode::Encode;
-use crate::encode_raw;
+use crate::error::RtmfpError;
 use crate::session_key_components::Decode;
 use crate::vlu::VLU;
 use crate::StaticEncode;
-use cookie_factory::sequence::tuple;
-use cookie_factory::{GenResult, SerializeFn, WriteContext};
-use std::io::Write;
+use parse::{take, GenerateBytes, ParseBytes, SliceWriter};
 
-#[derive(Debug, Clone, Eq, PartialEq)]
 /// RFC7016[2.1.3] Option
 /// This is a Length-Type-Value triple, encoded with [`VLU`]s
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RTMFPOption {
     /// A VLU with a length of 0: has no type and value and is called a Marker
     Marker,
@@ -18,6 +15,45 @@ pub enum RTMFPOption {
         type_: VLU,
         value: Vec<u8>,
     },
+}
+
+impl GenerateBytes for RTMFPOption {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        match self {
+            Self::Marker => VLU::from(0).generate(sw),
+            Self::Option { length, type_, value } => {
+                length.generate(sw);
+                type_.generate(sw);
+                sw.put(value.as_slice());
+            }
+        }
+    }
+}
+
+impl ParseBytes<'_> for RTMFPOption {
+    type Error = RtmfpError;
+
+    fn parse(i: &[u8]) -> Result<(&[u8], Self), Self::Error>
+    where
+        Self: Sized
+    {
+        let (i, length) = VLU::parse(i)?;
+
+        if length.value == 0 {
+            Ok((i, RTMFPOption::Marker))
+        } else {
+            let (i, type_) = VLU::parse(i)?;
+            let (i, value) = take(i, (length.value - type_.length as u64) as usize)?;
+            Ok((
+                i,
+                RTMFPOption::Option {
+                    length,
+                    type_,
+                    value: value.to_vec(),
+                },
+            ))
+        }
+    }
 }
 
 impl Decode for RTMFPOption {
@@ -42,17 +78,6 @@ impl Decode for RTMFPOption {
 }
 
 impl RTMFPOption {
-    pub fn encode_impl<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
-        move |out| match self {
-            RTMFPOption::Marker => VLU::from(0).encode()(out),
-            RTMFPOption::Option {
-                value,
-                type_,
-                length,
-            } => tuple((length.encode(), type_.encode(), encode_raw(value)))(out),
-        }
-    }
-
     pub fn is_marker(&self) -> bool {
         matches!(self, RTMFPOption::Marker)
     }
@@ -68,13 +93,6 @@ impl RTMFPOption {
         }
     }
 }
-
-impl<W: Write> Encode<W> for RTMFPOption {
-    fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        self.encode_impl()(w)
-    }
-}
-static_encode!(RTMFPOption);
 
 pub trait OptionType {
     fn option_type(&self) -> u8;

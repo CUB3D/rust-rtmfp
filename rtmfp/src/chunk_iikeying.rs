@@ -1,15 +1,11 @@
-use crate::encode::Encode;
 
 use crate::flash_certificate::FlashCertificate;
 use crate::session_key_components::{Decode, SessionKeyingComponent};
 use crate::vlu::VLU;
+use crate::ChunkContent;
 use crate::StaticEncode;
-use crate::{encode_raw, ChunkContent};
-use cookie_factory::bytes::{be_u32, be_u8};
-use cookie_factory::sequence::tuple;
-use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
-use std::io::Write;
+use parse::{GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct IIKeyingChunkBody {
@@ -47,36 +43,41 @@ impl IIKeyingChunkBody {
         }
     }
 }
-impl<T: Write> Encode<T> for IIKeyingChunkBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        println!("SKIC_LEN = {:X}", self.skic_length.value);
-        tuple((
-            be_u32(self.initiator_session_id),
-            self.cookie_length.encode(),
-            encode_raw(&self.cookie_echo),
-            self.cert_length.encode(),
-            //TODO: compute above length
-            move |out| self.initiator_certificate.encode(out),
-            // self.skic_length.encode(),
 
-
-            VLU::from(self.signature.len() + 2).encode(),
-            //TODO: this is because our key is too long, but we should be using 2 bytes here
-            // Assuming this is another bug in VLU encoding?
-            be_u8(0),
-            be_u8(0),
-
-
-
-            // move |out| self.session_key_initiator_component.encode(out),
-            encode_raw(&self.signature),
-
-            VLU::from(self.nonce.len()).encode(),
-            encode_raw(&self.nonce)
-        ))(w)
+impl StaticEncode for IIKeyingChunkBody {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
     }
 }
-static_encode!(IIKeyingChunkBody);
+
+impl GenerateBytes for IIKeyingChunkBody {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        println!("SKIC_LEN = {:X}", self.skic_length.value);
+
+        sw.be_u32(self.initiator_session_id);
+        self.cookie_length.generate(sw);
+        sw.put(self.cookie_echo.as_slice());
+        self.cert_length.generate(sw);
+        //TODO: compute above length
+        self.initiator_certificate.generate(sw);
+        // self.skic_length.encode(),
+        VLU::from(self.signature.len() + 2).generate(sw);
+        //TODO: this is because our key is too long, but we should be using 2 bytes here
+        // Assuming this is another bug in VLU encoding?
+        sw.ne_u8(0);
+        sw.ne_u8(0);
+
+
+        // move |out| self.session_key_initiator_component.encode(out),
+        sw.put(self.signature.as_slice());
+
+        VLU::from(self.nonce.len()).generate(sw);
+        sw.put(self.nonce.as_slice());
+    }
+}
 
 impl Decode for IIKeyingChunkBody {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
@@ -93,7 +94,7 @@ impl Decode for IIKeyingChunkBody {
         let (i, skic_length) = VLU::decode(i)?;
         let skic_data = &i[..skic_length.value as usize];
         let (_skik_rem, session_key_initiator_component) =
-            SessionKeyingComponent::decode(skic_data)?;
+            SessionKeyingComponent::parse(skic_data)?;
 
         let signature = &i[skic_length.value as usize..];
 
@@ -123,7 +124,9 @@ impl From<IIKeyingChunkBody> for ChunkContent {
 #[cfg(test)]
 pub mod test {
     use crate::flash_certificate::FlashCertificate;
-    use crate::{Decode, IIKeyingChunkBody, StaticEncode};
+    use crate::{Decode, IIKeyingChunkBody};
+    use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
+    use crate::session_key_components::SessionKeyingComponent;
 
     #[test]
     pub fn iikeying_round_trip() {
@@ -137,12 +140,13 @@ pub mod test {
                 remainder: Vec::new(),
             },
             skic_length: 0.into(),
-            session_key_initiator_component: Vec::new(),
+            session_key_initiator_component: SessionKeyingComponent::default(),
             signature: Vec::new(),
             nonce: Vec::new(),
         };
-        let enc = packet.encode_static();
-        let (i, dec) = IIKeyingChunkBody::decode(&enc).unwrap();
+        let mut sw = VecSliceWriter::default();
+        packet.generate(&mut sw);
+        let (i, dec) = IIKeyingChunkBody::decode(&sw.as_slice()).unwrap();
         assert_eq!(dec, packet);
         assert_eq!(i, &[]);
     }

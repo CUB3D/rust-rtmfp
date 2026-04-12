@@ -1,31 +1,40 @@
-use crate::encode::Encode;
-use crate::session_key_components::Decode;
+use crate::error::RtmfpError;
 use crate::ChunkContent;
-use cookie_factory::{GenResult, WriteContext};
-use nom::IResult;
-use std::io::Write;
+use parse::{GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
+use crate::encode::StaticEncode;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PingBody {
     pub message: Vec<u8>,
 }
 
-impl<T: Write> Encode<T> for PingBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        self.message.encode(w)
+impl StaticEncode for PingBody {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
     }
 }
-static_encode!(PingBody);
-impl Decode for PingBody {
-    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
-        Ok((
-            &[],
-            Self {
-                message: i.to_vec(),
-            },
-        ))
+
+impl GenerateBytes for PingBody {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        sw.put(self.message.as_slice());
     }
 }
+
+impl ParseBytes<'_> for PingBody {
+    type Error = RtmfpError;
+
+    fn parse(i: &[u8]) -> Result<(&[u8], Self), Self::Error>
+    where
+        Self: Sized
+    {
+        Ok((&[], Self { message: i.to_vec() }))
+    }
+}
+
+
 impl From<PingBody> for ChunkContent {
     fn from(s: PingBody) -> Self {
         ChunkContent::Ping(s)
@@ -34,16 +43,21 @@ impl From<PingBody> for ChunkContent {
 
 #[cfg(test)]
 pub mod test {
-    use crate::{Decode, PingBody, StaticEncode};
+    use crate::error::RtmfpError;
+    use crate::PingBody;
+    use parse::{GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
 
     #[test]
-    pub fn ping_round_trip() {
+    pub fn ping_round_trip() -> Result<(), RtmfpError> {
         let packet = PingBody {
             message: vec![1, 2, 3, 4],
         };
-        let enc = packet.encode_static();
-        let (i, dec) = PingBody::decode(&enc).unwrap();
+
+        let mut sw = VecSliceWriter::default();
+        packet.generate(&mut sw);
+        let (i, dec) = PingBody::parse(sw.as_slice())?;
         assert_eq!(dec, packet);
         assert_eq!(i, &[]);
+        Ok(())
     }
 }

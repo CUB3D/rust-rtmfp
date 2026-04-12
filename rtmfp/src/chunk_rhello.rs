@@ -1,14 +1,11 @@
-use crate::encode::Encode;
+use crate::encode::{StaticEncode};
 
 use crate::flash_certificate::FlashCertificate;
 use crate::session_key_components::Decode;
 
 use crate::ChunkContent;
-use cookie_factory::bytes::be_u8;
-use cookie_factory::sequence::tuple;
-use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
-use std::io::Write;
+use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RHelloChunkBody {
@@ -48,18 +45,25 @@ impl Decode for RHelloChunkBody {
     }
 }
 
-impl<T: Write> Encode<T> for RHelloChunkBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        tuple((
-            be_u8(self.tag_length),
-            move |out| self.tag_echo.encode(out),
-            be_u8(self.cookie_length),
-            move |out| self.cookie.encode(out),
-            move |out| self.responder_certificate.encode(out),
-        ))(w)
+impl GenerateBytes for RHelloChunkBody {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        sw.ne_u8(self.tag_length);
+        sw.put(self.tag_echo.as_slice());
+        sw.ne_u8(self.cookie_length);
+        sw.put(self.cookie.as_slice());
+        self.responder_certificate.generate(sw);
     }
 }
-static_encode!(RHelloChunkBody);
+
+impl StaticEncode for RHelloChunkBody {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
+    }
+}
+
 impl From<RHelloChunkBody> for ChunkContent {
     fn from(body: RHelloChunkBody) -> Self {
         ChunkContent::RHello(body)

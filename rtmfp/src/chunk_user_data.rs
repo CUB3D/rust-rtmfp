@@ -1,13 +1,9 @@
-use crate::encode::Encode;
+use crate::encode::StaticEncode;
 use crate::rtmfp_option::RTMFPOption;
 use crate::vlu::VLU;
-use crate::{ChunkContent};
-use cookie_factory::bytes::be_u8;
-use cookie_factory::multi::all;
-use cookie_factory::sequence::tuple;
-use cookie_factory::{GenResult, WriteContext};
+use crate::ChunkContent;
 use enumset::EnumSet;
-use std::io::Write;
+use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -40,20 +36,28 @@ pub struct UserDataChunk {
     pub options: Vec<RTMFPOption>,
     pub user_data: Vec<u8>,
 }
-impl<T: Write> Encode<T> for UserDataChunk {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        tuple((
-            be_u8(0b1_0_01_00_0_0),
-            self.flow_id.encode(),
-            self.sequence_number.encode(),
-            self.forward_sequence_number_offset.encode(),
-            all(self.options.iter().map(|x| x.encode_impl())),
-            RTMFPOption::Marker.encode_impl(),
-            move |out| self.user_data.encode(out),
-        ))(w)
+
+impl StaticEncode for UserDataChunk {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
     }
 }
-static_encode!(UserDataChunk);
+
+impl GenerateBytes for UserDataChunk {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        sw.ne_u8(0b1_0_01_00_0_0);
+        self.flow_id.generate(sw);
+        self.sequence_number.generate(sw);
+        self.forward_sequence_number_offset.generate(sw);
+        sw.gen_many(self.options.as_slice());
+        RTMFPOption::Marker.generate(sw);
+        sw.put(self.user_data.as_slice());
+    }
+}
+
 impl From<UserDataChunk> for ChunkContent {
     fn from(s: UserDataChunk) -> Self {
         ChunkContent::UserData(s)

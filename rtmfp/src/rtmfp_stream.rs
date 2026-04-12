@@ -1,5 +1,5 @@
 use crate::Multiplex;
-use cookie_factory::r#gen;
+use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
 use std::net::{SocketAddr, UdpSocket};
 use std::time::Duration;
 
@@ -32,12 +32,13 @@ impl RTMFPStream {
         }
     }
 
-    pub fn send(&self, m: Multiplex, dest: SocketAddr) {
-        let v = Vec::new();
-        let (bytes, _s2) = r#gen(m.encode(&self.encryption_key), v).unwrap();
-        println!("Send = {:X?}", bytes);
+    pub fn send(&self, mut m: Multiplex, dest: SocketAddr) {
+        let mut sw = VecSliceWriter::default();
+        m.encryption_key = self.encryption_key.clone();
+        m.generate(&mut sw);
+        println!("Send = {:X?}", sw.as_slice());
         // self.socket.send_to(&bytes, dest).unwrap();
-        self.socket.send(&bytes).unwrap();
+        self.socket.send(sw.as_slice()).unwrap();
     }
 
     pub fn read(&self) -> Option<(Multiplex, SocketAddr)> {

@@ -1,19 +1,15 @@
-use crate::encode::Encode;
 use crate::session_key_components::Decode;
 use crate::ChunkContent;
-use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
-use std::io::Write;
+use parse::{GenerateBytes, SliceWriter};
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct SessionCloseAcknowledgementBody;
 
-impl<T: Write> Encode<T> for SessionCloseAcknowledgementBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        Ok(w)
-    }
+impl GenerateBytes for SessionCloseAcknowledgementBody {
+    fn generate<'b>(&'b self, _sw: &'b mut impl SliceWriter) {}
 }
-static_encode!(SessionCloseAcknowledgementBody);
+
 impl Decode for SessionCloseAcknowledgementBody {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
         Ok((i, Self::default()))

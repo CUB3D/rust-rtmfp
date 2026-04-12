@@ -3,11 +3,6 @@ extern crate core;
 extern crate derive_try_from_primitive;
 #[macro_use]
 extern crate enumset;
-use cookie_factory::bytes::{be_u16, be_u32, be_u8};
-use cookie_factory::multi::all;
-use cookie_factory::sequence::tuple;
-use cookie_factory::{r#gen, GenResult, SerializeFn, WriteContext};
-use std::io::Write;
 
 pub use crate::chunk_ihello::IHelloChunkBody;
 pub use crate::chunk_iikeying::IIKeyingChunkBody;
@@ -18,7 +13,7 @@ use crate::chunk_rikeying::ResponderInitialKeyingChunkBody;
 use crate::chunk_session_close_acknowledgement::SessionCloseAcknowledgementBody;
 use crate::chunk_session_close_request::SessionCloseRequestBody;
 use crate::chunk_user_data::UserDataChunk;
-use crate::encode::{Encode, StaticEncode};
+use crate::encode::StaticEncode;
 
 use crate::flash_profile_plain_packet::FlashProfilePlainPacket;
 
@@ -27,29 +22,13 @@ use crate::rtmfp_option::OptionType;
 use crate::rtmfp_option::RTMFPOption;
 use crate::session_key_components::Decode;
 
-use cookie_factory::combinator::cond;
-
-
 use aes::cipher::block_padding::NoPadding;
 use aes::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
-use std::convert::TryInto;
 use parse::{GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
+use std::convert::TryInto;
 
 type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
-
-#[macro_export]
-macro_rules! static_encode {
-    ($name: ident) => {
-        impl $crate::StaticEncode for $name {
-            fn encode_static(&self) -> Vec<u8> {
-                let v = Vec::new();
-                let (bytes, _size) = cookie_factory::r#gen(move |out| self.encode(out), v).unwrap();
-                bytes
-            }
-        }
-    };
-}
 
 #[macro_export]
 macro_rules! optionable {
@@ -74,7 +53,8 @@ pub mod chunk_rikeying;
 pub mod chunk_session_close_acknowledgement;
 pub mod chunk_session_close_request;
 pub mod chunk_user_data;
-pub mod connection_state_machine;
+//TODO: restore
+// pub mod connection_state_machine;
 pub mod encode;
 pub mod endpoint_discriminator;
 pub mod flash_certificate;
@@ -98,6 +78,7 @@ impl<T: Into<ChunkContent> + StaticEncode + Clone> From<T> for Chunk {
         }
     }
 }
+
 
 #[repr(u8)]
 #[derive(TryFromPrimitive)]
@@ -137,7 +118,7 @@ pub enum ChunkContent {
     SessionCloseAcknowledgement(SessionCloseAcknowledgementBody),
     UserData(UserDataChunk),
 }
-static_encode!(ChunkContent);
+// static_encode!(ChunkContent);
 impl From<ChunkContent> for ChunkType {
     fn from(s: ChunkContent) -> Self {
         match s {
@@ -155,27 +136,39 @@ impl From<ChunkContent> for ChunkType {
     }
 }
 
-pub fn encode_raw<'a, 'b: 'a, W: Write + 'a>(v: &'b [u8]) -> impl SerializeFn<W> + 'a {
-    all(v.iter().map(move |p| be_u8(*p)))
-}
-
-impl<T: Write> Encode<T> for ChunkContent {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
+impl GenerateBytes for ChunkContent {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
         match self {
-            ChunkContent::Raw(v) => encode_raw(v)(w),
-            ChunkContent::RHello(body) => body.encode(w),
-            ChunkContent::IIKeying(body) => body.encode(w),
-            ChunkContent::IHello(body) => body.encode(w),
-            ChunkContent::RIKeying(body) => body.encode(w),
-            ChunkContent::Ping(body) => body.encode(w),
-            ChunkContent::PingReply(body) => {
-                let mut sw = VecSliceWriter::default();
-                body.generate(&mut sw);
-                encode_raw(sw.as_slice())(w)
+            ChunkContent::Raw(v) => {
+                sw.put(v.as_slice());
             },
-            ChunkContent::SessionCloseRequest(body) => body.encode(w),
-            ChunkContent::SessionCloseAcknowledgement(body) => body.encode(w),
-            ChunkContent::UserData(body) => body.encode(w),
+            ChunkContent::RHello(body) => {
+                body.generate(sw);
+            }
+            ChunkContent::IIKeying(body) => {
+                body.generate(sw);
+            }
+            ChunkContent::IHello(body) => {
+                body.generate(sw);
+            }
+            ChunkContent::RIKeying(body) => {
+                body.generate(sw);
+            }
+            ChunkContent::Ping(body) => {
+                body.generate(sw);
+            },
+            ChunkContent::PingReply(body) => {
+                body.generate(sw);
+            },
+            ChunkContent::SessionCloseRequest(body) => {
+                body.generate(sw);
+            },
+            ChunkContent::SessionCloseAcknowledgement(body) => {
+                body.generate(sw);
+            },
+            ChunkContent::UserData(body) => {
+                body.generate(sw);
+            },
         }
     }
 }
@@ -203,20 +196,20 @@ pub struct Chunk {
     pub payload: ChunkContent,
 }
 
-impl Chunk {
-    fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
-        let bytes = self.payload.encode_static();
+impl GenerateBytes for Chunk {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        let mut sw1 = VecSliceWriter::default();
+        self.payload.generate(&mut sw1);
+
+        let bytes = sw1.as_slice().to_vec();
         let size = bytes.len();
 
-        move |out| {
-            tuple((
-                be_u8(self.chunk_type),
-                be_u16(size as u16),
-                encode_raw(&bytes),
-            ))(out)
-        }
+        sw.ne_u8(self.chunk_type);
+        sw.be_u16(size as u16);
+        sw.put(bytes.as_slice());
     }
-
+}
+impl Chunk {
     pub fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
         let (i, chunk_type) = nom::number::complete::be_u8(i)?;
         let (i, chunk_length) = nom::number::complete::be_u16(i)?;
@@ -275,10 +268,10 @@ impl Chunk {
             //TODO: handle incomplete parsing
             let payload: ChunkContent = match chunk_type_x {
                 ChunkType::SessionCloseRequest => SessionCloseRequestBody::decode(payload)?.1.into(),
-                ChunkType::Ping => PingBody::decode(payload)?.1.into(),
+                ChunkType::Ping => PingBody::parse(payload)?.1.into(),
                 ChunkType::PingReply => PingReplyBody::parse(payload)?.1.into(),
                 ChunkType::SessionCloseAcknowledgement => SessionCloseAcknowledgementBody::decode(payload)?.1.into(),
-                ChunkType::InitiatorHello => IHelloChunkBody::decode(payload)?.1.into(),
+                ChunkType::InitiatorHello => IHelloChunkBody::parse(payload)?.1.into(),
                 ChunkType::ResponderHello => RHelloChunkBody::decode(payload)?.1.into(),
                 ChunkType::InitiatorInitialKeying => IIKeyingChunkBody::decode(payload)?.1.into(),
                 _ => ChunkContent::Raw(payload.to_vec()),
@@ -303,20 +296,19 @@ pub struct Packet {
     pub timestamp_echo: Option<u16>,
     pub chunks: Vec<Chunk>,
 }
-impl Packet {
-    pub fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
-        tuple((
-            move |out| self.flags.encode(out),
-            //TODO: are these timestamps mutally exclusive
-            cond(self.timestamp.is_some(), move |out| {
-                be_u16(self.timestamp.unwrap())(out)
-            }),
-            cond(self.timestamp_echo.is_some(), move |out| {
-                be_u16(self.timestamp_echo.unwrap())(out)
-            }),
-            all(self.chunks.iter().map(move |c| c.encode())),
-        ))
+impl GenerateBytes for Packet {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        self.flags.generate(sw);
+        if let Some(ts) = self.timestamp {
+            sw.be_u16(ts);
+        }
+        if let Some(ts) = self.timestamp_echo {
+            sw.be_u16(ts);
+        }
+        sw.gen_many(self.chunks.as_slice());
     }
+}
+impl Packet {
     pub fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
         let (i, flags) = PacketFlags::decode(i)?;
 
@@ -366,53 +358,48 @@ impl Packet {
 pub struct Multiplex {
     pub session_id: u32,
     pub packet: FlashProfilePlainPacket,
+    //TODO: no
+    pub encryption_key: Option<Vec<u8>>,
 }
-impl Multiplex {
-    fn encode<'a, 'b: 'a, W: Write + 'a>(
-        &'a self,
-        encryption_key: &'b Option<Vec<u8>>,
-    ) -> impl SerializeFn<W> + 'a {
-        let v = Vec::new();
-        let (bytes, _size) = r#gen(move |out| self.packet.encode(out), v).unwrap();
-
+impl GenerateBytes for Multiplex {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        let bytes = self.packet.encode();
         tracing::debug!("Bytes before encrypt = {:X?}", bytes);
 
-        move |out| {
-            let mut bytes: Vec<u8> = bytes.to_vec();
+        let mut bytes: Vec<u8> = bytes.to_vec();
 
-            while !bytes.len().is_multiple_of(16) {
-                bytes.push(0);
-            }
-
-            if let Some(keyv) = encryption_key {
-                let mut key: [u8; 16] = [0u8; 16];
-                key.copy_from_slice(keyv);
-
-                let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-                let cipher = Aes128CbcEnc::new(&key.into(), &iv.into());
-
-                let l = bytes.len();
-                let encrypted = cipher.encrypt_padded_mut::<NoPadding>(&mut bytes, l).unwrap();
-                bytes = encrypted.to_vec();
-            }
-
-            let first_word: u32 = ((bytes[0] as u32) << 24)
-                | ((bytes[1] as u32) << 16)
-                | ((bytes[2] as u32) << 8)
-                | (bytes[3] as u32);
-            let second_word: u32 = ((bytes[4] as u32) << 24)
-                | ((bytes[5] as u32) << 16)
-                | ((bytes[6] as u32) << 8)
-                | (bytes[7] as u32);
-
-            let scrambled_session_id = (self.session_id) ^ (first_word ^ second_word);
-
-            let x = tuple((be_u32(scrambled_session_id), encode_raw(&bytes)))(out);
-
-            x
+        while !bytes.len().is_multiple_of(16) {
+            bytes.push(0);
         }
-    }
 
+        if let Some(keyv) = &self.encryption_key {
+            let mut key: [u8; 16] = [0u8; 16];
+            key.copy_from_slice(keyv);
+
+            let iv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            let cipher = Aes128CbcEnc::new(&key.into(), &iv.into());
+
+            let l = bytes.len();
+            let encrypted = cipher.encrypt_padded_mut::<NoPadding>(&mut bytes, l).unwrap();
+            bytes = encrypted.to_vec();
+        }
+
+        let first_word: u32 = ((bytes[0] as u32) << 24)
+            | ((bytes[1] as u32) << 16)
+            | ((bytes[2] as u32) << 8)
+            | (bytes[3] as u32);
+        let second_word: u32 = ((bytes[4] as u32) << 24)
+            | ((bytes[5] as u32) << 16)
+            | ((bytes[6] as u32) << 8)
+            | (bytes[7] as u32);
+
+        let scrambled_session_id = (self.session_id) ^ (first_word ^ second_word);
+
+        sw.be_u32(scrambled_session_id);
+        sw.put(bytes.as_slice());
+    }
+}
+impl Multiplex {
     pub fn decode<'a>(i: &'a [u8], decryption_key: &[u8]) -> nom::IResult<&'a [u8], Self> {
         let (i, scrambled_session_id) = nom::number::complete::be_u32(i)?;
 
@@ -443,6 +430,7 @@ impl Multiplex {
             Self {
                 packet: flash_packet,
                 session_id,
+                encryption_key: None,
             },
         ))
     }
@@ -450,18 +438,18 @@ impl Multiplex {
 
 #[cfg(test)]
 pub mod test {
-    use crate::endpoint_discriminator::AncillaryDataBody;
+    use crate::endpoint_discriminator::{AncillaryDataBody, EndpointDiscriminator};
     use crate::packet::PacketMode;
     use crate::{
-        Chunk, ChunkContent, Decode, Encode, FlashProfilePlainPacket, IHelloChunkBody, Multiplex,
+        Chunk, ChunkContent, FlashProfilePlainPacket, IHelloChunkBody, Multiplex,
         Packet, PacketFlag, PacketFlags,
     };
-    use nom::AsBytes;
+    use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
 
     #[test]
     #[ignore]
     pub fn multiplex_round_trip() {
-        let m = Multiplex {
+        let mut m = Multiplex {
             session_id: 0,
             packet: FlashProfilePlainPacket {
                 session_sequence_number: 0,
@@ -475,40 +463,29 @@ pub mod test {
                     timestamp_echo: None,
                     chunks: vec![IHelloChunkBody {
                         epd_length: 2.into(),
-                        endpoint_discriminator: vec![AncillaryDataBody {
+                        endpoint_discriminator: EndpointDiscriminator(vec![AncillaryDataBody {
                             ancillary_data: Vec::new(),
                         }
-                        .into()],
+                        .into()]),
                         tag: vec![0u8; 16],
                     }
                     .into()],
                 },
             },
+            encryption_key: None,
         };
 
-        let v = Vec::new();
-        let (bytes, _s2) =
-            cookie_factory::r#gen(m.encode(&Some(b"Adobe Systems 02".to_vec())), v).unwrap();
+        let mut sw = VecSliceWriter::default();
+        m.encryption_key = Some(b"Adobe Systems 02".to_vec());
+        m.generate(&mut sw);
 
-        let (i, dec) = Multiplex::decode(&bytes, b"Adobe Systems 02").unwrap();
+        let (i, dec) = Multiplex::decode(sw.as_slice(), b"Adobe Systems 02").unwrap();
 
         println!("{:#?}", m);
         println!("{:#?}", dec);
 
         assert_eq!(dec, m);
         assert_eq!(i, &[]);
-    }
-
-    #[test]
-    pub fn test1 () {
-
-        let p: Chunk =
-            crate::PingBody {
-            message: b"Hello".as_bytes().to_vec(),
-        }.into();
-        let v = Vec::new();
-        let bytes = cookie_factory::r#gen(Chunk::encode(&p), v).unwrap();
-        println!("p = {:?}", bytes);
     }
 
     #[test]
@@ -523,10 +500,9 @@ pub mod test {
             chunks: Vec::new(),
         };
 
-        let v = Vec::new();
-        let (enc, _size) = cookie_factory::r#gen(m.encode(), v).unwrap();
-
-        let (i, dec) = Packet::decode(&enc).unwrap();
+        let mut sw = VecSliceWriter::default();
+        m.generate(&mut sw);
+        let (i, dec) = Packet::decode(sw.as_slice()).unwrap();
 
         println!("{:#?}", m);
         println!("{:#?}", dec);
@@ -543,10 +519,9 @@ pub mod test {
             payload: ChunkContent::Raw(Vec::new()),
         };
 
-        let v = Vec::new();
-        let (enc, _size) = cookie_factory::r#gen(m.encode(), v).unwrap();
-
-        let (i, dec) = Chunk::decode(&enc).unwrap();
+        let mut sw = VecSliceWriter::default();
+        m.generate(&mut sw);
+        let (i, dec) = Chunk::decode(sw.as_slice()).unwrap();
 
         println!("{:#?}", m);
         println!("{:#?}", dec);

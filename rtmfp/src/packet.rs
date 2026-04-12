@@ -1,11 +1,8 @@
-use crate::encode::Encode;
 use crate::session_key_components::Decode;
-use cookie_factory::bytes::be_u8;
-use cookie_factory::{GenResult, WriteContext};
 use enumset::EnumSet;
 use nom::IResult;
+use parse::{GenerateBytes, SliceWriter};
 use std::convert::TryInto;
-use std::io::Write;
 
 #[derive(Debug, EnumSetType)]
 pub enum PacketFlag {
@@ -40,8 +37,8 @@ impl PacketFlags {
     }
 }
 
-impl<T: Write> Encode<T> for PacketFlags {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
+impl GenerateBytes for PacketFlags {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
         let mut flags = 0u8;
 
         if self.flags.contains(PacketFlag::TimeCritical) {
@@ -63,7 +60,7 @@ impl<T: Write> Encode<T> for PacketFlags {
         let mode = self.mode as u8;
         flags |= mode & 0b0000_0011;
 
-        be_u8(flags)(w)
+        sw.ne_u8(flags);
     }
 }
 

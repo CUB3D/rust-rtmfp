@@ -12,16 +12,13 @@ use rtmfp::chunk_user_data::{
     UserDataChunk, UserDataChunkFlags, UserDataChunkFragmentControl, UserDataChunkOptionType,
 };
 use rtmfp::encode::StaticEncode;
-use rtmfp::endpoint_discriminator::AncillaryDataBody;
+use rtmfp::endpoint_discriminator::{AncillaryDataBody, EndpointDiscriminator};
 use rtmfp::flash_certificate::FlashCertificate;
 use rtmfp::flash_profile_plain_packet::FlashProfilePlainPacket;
 use rtmfp::packet::{PacketFlag, PacketFlags, PacketMode};
 use rtmfp::rtmfp_option::RTMFPOption;
 use rtmfp::rtmfp_stream::RTMFPStream;
-use rtmfp::session_key_components::{
-    get_ephemeral_diffie_hellman_public_key, EphemeralDiffieHellmanPublicKeyBody,
-    ExtraRandomnessBody,
-};
+use rtmfp::session_key_components::{get_ephemeral_diffie_hellman_public_key, EphemeralDiffieHellmanPublicKeyBody, ExtraRandomnessBody, SessionKeyingComponent};
 use rtmfp::{IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet};
 
 mod tui_ {
@@ -119,15 +116,16 @@ fn main() -> std::io::Result<()> {
                 timestamp_echo: None,
                 chunks: vec![IHelloChunkBody {
                     epd_length: 2.into(),
-                    endpoint_discriminator: vec![AncillaryDataBody {
+                    endpoint_discriminator: EndpointDiscriminator(vec![AncillaryDataBody {
                         ancillary_data: Vec::new(),
                     }
-                        .into()],
+                        .into()]),
                     tag: our_tag.to_vec(),
                 }
                     .into()],
             },
         },
+        encryption_key: None,
     };
 
     stream.send(m, "127.0.0.1:1935".parse().unwrap());
@@ -162,7 +160,7 @@ fn main() -> std::io::Result<()> {
             canonical: Vec::new(),
             remainder: Vec::new(),
         },
-        vec![
+        SessionKeyingComponent(vec![
             EphemeralDiffieHellmanPublicKeyBody {
                 group_id: 2.into(),
                 public_key: public_key_bytes.clone(),
@@ -172,7 +170,7 @@ fn main() -> std::io::Result<()> {
                 extra_randomness: our_nonce.to_vec(),
             }
                 .into(),
-        ],
+        ]),
     );
     body.signature = public_key_bytes.clone();
     body.nonce = our_nonce.to_vec();
@@ -192,6 +190,7 @@ fn main() -> std::io::Result<()> {
                 chunks: vec![body.into()],
             },
         },
+        encryption_key: None,
     };
 
     stream.send(m, srv);
@@ -212,7 +211,7 @@ fn main() -> std::io::Result<()> {
             .payload
             .get_rikeying()
             .unwrap()
-            .session_key_responder_component,
+            .session_key_responder_component.0,
     )
         .unwrap()
         .public_key;
@@ -306,6 +305,7 @@ fn main() -> std::io::Result<()> {
                     .into()],
             },
         },
+        encryption_key: None,
     };
     stream.send(flow_start_packet, srv);
 
@@ -333,6 +333,7 @@ fn main() -> std::io::Result<()> {
                     .into()],
             },
         },
+        encryption_key: None,
     };
     stream.send(ping, srv);
 
@@ -400,6 +401,7 @@ fn main() -> std::io::Result<()> {
                             .into()],
                     },
                 },
+                encryption_key: None,
             };
             stream.send(ping, srv);
 

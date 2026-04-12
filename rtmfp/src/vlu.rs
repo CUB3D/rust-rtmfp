@@ -1,6 +1,5 @@
-use cookie_factory::SerializeFn;
-use std::io::Write;
-use crate::encode_raw;
+use crate::error::RtmfpError;
+use parse::{ne_u8, GenerateBytes, ParseBytes, SliceWriter};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 /// RFC7016[2.1.2], Variable Length Unsigned Integer
@@ -11,7 +10,73 @@ pub struct VLU {
     pub value: u64,
 }
 
+impl ParseBytes<'_> for VLU {
+    type Error = RtmfpError;
+
+    fn parse(i: &[u8]) -> Result<(&[u8], Self), Self::Error>
+    where
+        Self: Sized
+    {
+        let mut value: u64 = 0;
+        let mut pos = 0;
+
+        let mut i = i;
+        loop {
+            let (j, v) = ne_u8(i)?;
+            i = j;
+
+            value *= 128;
+            value += (v & 0b0111_1111) as u64;
+            pos += 1;
+            if v & 0b1000_0000 == 0 {
+                break;
+            }
+        }
+
+        let vlu = Self {
+            length: pos as u8,
+            value,
+        };
+
+        Ok((i, vlu))
+    }
+}
+
+impl GenerateBytes for VLU {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        let mut bytes = Vec::new();
+
+        if self.value < 0x80 {
+            bytes.push(self.value as u8);
+        } else if self.value >= 0x80 && self.value < 8192 {
+            bytes.push((((self.value >> 7) & 0b0111_1111) | 0b1000_0000) as u8);
+            bytes.push((self.value & 0b0111_1111) as u8);
+        } else {
+            panic!()
+        };
+
+        // println!("bytes of {} = {:?}", self.value, bytes);
+        let (_, x) = Self::decode(bytes.as_slice()).unwrap();
+        assert_eq!(x.value, self.value);
+
+        sw.put(bytes.as_slice());
+
+        /*return move |out| {
+            if self.value & 0b1000_0000 != 0 {
+                let t = &[(self.value & 0b1111_1111) as u8, ((self.value >> 7) & 0b0111_1111) as u8];
+                let x = Self::decode(t.as_slice()).unwrap();
+                println!("{} = {}", self.value, x.1.value);
+
+                tuple((be_u8(((self.value & 0b0111_1111) | 0b1000_0000) as u8), be_u8(((self.value >> 8) & 0b0111_1111) as u8)))(out)
+            } else {
+                be_u8((self.value & 0b0111_1111) as u8)(out)
+            }
+        };*/
+    }
+}
+
 impl VLU {
+    // #[deprecated]
     pub fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
         let mut value: u64 = 0;
         let mut pos = 0;
@@ -35,42 +100,6 @@ impl VLU {
         };
 
         Ok((i, vlu))
-    }
-
-    pub fn encode<'a, W: Write + 'a>(&'a self) -> impl SerializeFn<W> + 'a {
-
-        let mut bytes = Vec::new();
-
-        if self.value < 0x80 {
-            bytes.push(self.value as u8);
-        } else if self.value >= 0x80 && self.value < 8192 {
-            bytes.push((((self.value >> 7) & 0b0111_1111) | 0b1000_0000) as u8);
-            bytes.push((self.value & 0b0111_1111) as u8);
-        } else {
-            panic!()
-        };
-
-        // println!("bytes of {} = {:?}", self.value, bytes);
-        let (_, x) = Self::decode(bytes.as_slice()).unwrap();
-        assert_eq!(x.value, self.value);
-
-        move |out| {
-            encode_raw(&bytes)(out)
-        }
-
-        /*return move |out| {
-            if self.value & 0b1000_0000 != 0 {
-                let t = &[(self.value & 0b1111_1111) as u8, ((self.value >> 7) & 0b0111_1111) as u8];
-                let x = Self::decode(t.as_slice()).unwrap();
-                println!("{} = {}", self.value, x.1.value);
-
-                tuple((be_u8(((self.value & 0b0111_1111) | 0b1000_0000) as u8), be_u8(((self.value >> 8) & 0b0111_1111) as u8)))(out)
-            } else {
-                be_u8((self.value & 0b0111_1111) as u8)(out)
-            }
-        };*/
-
-
     }
 }
 

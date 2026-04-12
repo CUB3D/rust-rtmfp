@@ -7,7 +7,6 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cookie-factory = "=0.3.3"
 nom = "=7.1.3"
 enumset = "=1.0.10"
 
@@ -17,4 +16,4 @@ aes = "=0.8.4"
 derive-try-from-primitive = "=1.0.0"
 tracing = "=0.1.44"
 
-parse = { git = "https://github.com/CUB3D/parse-rs", rev = "eb1a331ca05656a8f2c6b9e4699eadd3f479c339" }
+parse = { git = "https://github.com/CUB3D/parse-rs", rev = "4e3e8bad444eeb24795cf6e880e3485f622136e5", features = ["alloc"] }

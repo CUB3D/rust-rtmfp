@@ -1,14 +1,9 @@
-use crate::encode::Encode;
+use crate::encode::StaticEncode;
 use crate::rtmfp_option::RTMFPOption;
 use crate::session_key_components::Decode;
-use crate::vlu::VLU;
 use crate::OptionType;
-use crate::{encode_raw};
-use cookie_factory::multi::all;
-use cookie_factory::sequence::tuple;
-use cookie_factory::{GenResult, WriteContext};
 use nom::IResult;
-use std::io::Write;
+use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FlashCertificate {
@@ -52,12 +47,20 @@ impl FlashCertificate {
     }
 }
 
-impl<W: Write> Encode<W> for FlashCertificate {
-    fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        all(self.canonical.iter().map(|c| c.encode_impl()))(w)
+impl StaticEncode for FlashCertificate {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
     }
 }
-static_encode!(FlashCertificate);
+
+impl GenerateBytes for FlashCertificate {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        sw.gen_many(self.canonical.as_slice());
+    }
+}
 
 pub fn get_extra_randomness(s: Vec<RTMFPOption>) -> Option<ExtraRandomnessBody> {
     s.iter()
@@ -88,31 +91,56 @@ pub enum CertificateOptions {
 pub struct HostnameBody {
     pub hostname: Vec<u8>,
 }
-optionable!(HostnameBody, CertificateOptions::Hostname);
-impl<T: Write> Encode<T> for HostnameBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        encode_raw(&self.hostname)(w)
+impl OptionType for HostnameBody {
+    fn option_type(&self) -> u8 {
+        CertificateOptions::Hostname as u8
+    }
+}
+impl StaticEncode for HostnameBody {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
+    }
+}
+impl GenerateBytes for HostnameBody {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        sw.put(self.hostname.as_slice());
     }
 }
 
-pub struct AcceptsAncillaryDataBody;
-optionable!(
-    AcceptsAncillaryDataBody,
-    CertificateOptions::AcceptsAncillaryData
-);
-impl<T: Write> Encode<T> for AcceptsAncillaryDataBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        Ok(w)
-    }
-}
+//TODO:revive
+// pub struct AcceptsAncillaryDataBody;
+// optionable!(
+//     AcceptsAncillaryDataBody,
+//     CertificateOptions::AcceptsAncillaryData
+// );
+// impl<T: Write> Encode<T> for AcceptsAncillaryDataBody {
+//     fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
+//         Ok(w)
+//     }
+// }
 
 pub struct ExtraRandomnessBody {
     pub extra_randomness: Vec<u8>,
 }
-optionable!(ExtraRandomnessBody, CertificateOptions::ExtraRandomness);
-impl<T: Write> Encode<T> for ExtraRandomnessBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        encode_raw(&self.extra_randomness)(w)
+impl OptionType for ExtraRandomnessBody {
+    fn option_type(&self) -> u8 {
+        CertificateOptions::ExtraRandomness as u8
+    }
+}
+impl StaticEncode for ExtraRandomnessBody {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
+    }
+}
+impl GenerateBytes for ExtraRandomnessBody {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        sw.put(self.extra_randomness.as_slice());
     }
 }
 impl Decode for ExtraRandomnessBody {
@@ -126,32 +154,34 @@ impl Decode for ExtraRandomnessBody {
     }
 }
 
-pub struct SupportedEphemeralDiffieHellmanGroupBody {
-    pub group_id: VLU,
-}
-optionable!(
-    SupportedEphemeralDiffieHellmanGroupBody,
-    CertificateOptions::SupportedEphemeralDiffieHellmanGroup
-);
-impl<T: Write> Encode<T> for SupportedEphemeralDiffieHellmanGroupBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        self.group_id.encode()(w)
-    }
-}
+//TODO: restore
+// pub struct SupportedEphemeralDiffieHellmanGroupBody {
+//     pub group_id: VLU,
+// }
+// optionable!(
+//     SupportedEphemeralDiffieHellmanGroupBody,
+//     CertificateOptions::SupportedEphemeralDiffieHellmanGroup
+// );
+// impl<T: Write> Encode<T> for SupportedEphemeralDiffieHellmanGroupBody {
+//     fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
+//         self.group_id.encode()(w)
+//     }
+// }
 
-pub struct StaticDiffieHellmanPublicKeyBody {
-    pub group_id: VLU,
-    pub public_key: Vec<u8>,
-}
-optionable!(
-    StaticDiffieHellmanPublicKeyBody,
-    CertificateOptions::StaticDiffieHellmanPublicKey
-);
-impl<T: Write> Encode<T> for StaticDiffieHellmanPublicKeyBody {
-    fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
-        tuple((
-            move |out| self.group_id.encode()(out),
-            encode_raw(&self.public_key),
-        ))(w)
-    }
-}
+//TODO: restore
+// pub struct StaticDiffieHellmanPublicKeyBody {
+//     pub group_id: VLU,
+//     pub public_key: Vec<u8>,
+// }
+// optionable!(
+//     StaticDiffieHellmanPublicKeyBody,
+//     CertificateOptions::StaticDiffieHellmanPublicKey
+// );
+// impl<T: Write> Encode<T> for StaticDiffieHellmanPublicKeyBody {
+//     fn encode(&self, w: WriteContext<T>) -> GenResult<T> {
+//         tuple((
+//             move |out| self.group_id.encode()(out),
+//             encode_raw(&self.public_key),
+//         ))(w)
+//     }
+// }

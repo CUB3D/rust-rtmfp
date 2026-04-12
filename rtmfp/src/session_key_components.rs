@@ -1,12 +1,10 @@
-use crate::encode::Encode;
+use crate::encode::StaticEncode;
+use crate::error::RtmfpError;
 use crate::vlu::VLU;
 use crate::OptionType;
-use crate::{encode_raw, RTMFPOption};
-use cookie_factory::bytes::be_u8;
-use cookie_factory::sequence::tuple;
-use cookie_factory::{GenResult, WriteContext};
+use crate::RTMFPOption;
 use nom::IResult;
-use std::io::Write;
+use parse::{take_all, GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
 
 pub trait Decode: Sized {
     fn decode(i: &[u8]) -> IResult<&[u8], Self>;
@@ -17,8 +15,36 @@ impl<T: Decode> Decode for Vec<T> {
     }
 }
 
-pub type SessionKeyingComponent = Vec<RTMFPOption>;
-static_encode!(SessionKeyingComponent);
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub struct SessionKeyingComponent(pub Vec<RTMFPOption>);
+impl GenerateBytes for SessionKeyingComponent {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        sw.gen_many(&self.0.as_slice());
+    }
+}
+impl ParseBytes<'_> for SessionKeyingComponent {
+    type Error = RtmfpError;
+
+    fn parse(i: &[u8]) -> Result<(&[u8], Self), Self::Error>
+    where
+        Self: Sized
+    {
+        let x = take_all::<_, RtmfpError, _>(i, |i| {
+            let (i, x) = RTMFPOption::parse(i)?;
+            Ok((i, x))
+        })?;
+        Ok((&[], Self(x)))
+    }
+}
+impl StaticEncode for SessionKeyingComponent {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
+    }
+}
+
 pub fn get_ephemeral_diffie_hellman_public_key(
     s: Vec<RTMFPOption>,
 ) -> Option<EphemeralDiffieHellmanPublicKeyBody> {
@@ -76,19 +102,39 @@ pub struct EphemeralDiffieHellmanPublicKeyBody {
     pub group_id: VLU,
     pub public_key: Vec<u8>,
 }
-optionable!(
-    EphemeralDiffieHellmanPublicKeyBody,
-    SessionKeyingOptionTypes::EphemeralDiffieHellmanPublicKey
-);
-impl<W: Write> Encode<W> for EphemeralDiffieHellmanPublicKeyBody {
-    fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        tuple((
-            self.group_id.encode(),
-            //TODO:
-            encode_raw(&self.public_key),
-        ))(w)
+impl StaticEncode for EphemeralDiffieHellmanPublicKeyBody {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
     }
 }
+
+impl GenerateBytes for EphemeralDiffieHellmanPublicKeyBody {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        self.group_id.generate(sw);
+        sw.put(self.public_key.as_slice());
+    }
+}
+impl OptionType for EphemeralDiffieHellmanPublicKeyBody {
+    fn option_type(&self) -> u8 {
+        SessionKeyingOptionTypes::EphemeralDiffieHellmanPublicKey as u8
+    }
+}
+// optionable!(
+//     EphemeralDiffieHellmanPublicKeyBody,
+//     SessionKeyingOptionTypes::EphemeralDiffieHellmanPublicKey
+// );
+// impl<W: Write> Encode<W> for EphemeralDiffieHellmanPublicKeyBody {
+//     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
+//         tuple((
+//             self.group_id.encode(),
+//             //TODO:
+//             encode_raw(&self.public_key),
+//         ))(w)
+//     }
+// }
 impl Decode for EphemeralDiffieHellmanPublicKeyBody {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
         let (i, group_id) = VLU::decode(i)?;
@@ -108,14 +154,22 @@ impl Decode for EphemeralDiffieHellmanPublicKeyBody {
 pub struct ExtraRandomnessBody {
     pub extra_randomness: Vec<u8>,
 }
-optionable!(
-    ExtraRandomnessBody,
-    SessionKeyingOptionTypes::ExtraRandomness
-);
-
-impl<W: Write> Encode<W> for ExtraRandomnessBody {
-    fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        encode_raw(&self.extra_randomness)(w)
+impl OptionType for ExtraRandomnessBody {
+    fn option_type(&self) -> u8 {
+        SessionKeyingOptionTypes::ExtraRandomness as u8
+    }
+}
+impl StaticEncode for ExtraRandomnessBody {
+    //TODO: drop
+    fn encode_static(&self) -> Vec<u8> {
+        let mut sw = VecSliceWriter::default();
+        self.generate(&mut sw);
+        sw.as_slice().to_vec()
+    }
+}
+impl GenerateBytes for ExtraRandomnessBody {
+    fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
+        sw.put(self.extra_randomness.as_slice());
     }
 }
 impl Decode for ExtraRandomnessBody {
@@ -129,56 +183,59 @@ impl Decode for ExtraRandomnessBody {
     }
 }
 
-#[derive(Debug)]
-pub struct DiffieHellmanGroupSelectBody {
-    pub group_id: VLU,
-}
-optionable!(
-    DiffieHellmanGroupSelectBody,
-    SessionKeyingOptionTypes::DiffieHellmanGroupSelect
-);
+//TODO: restore
+// #[derive(Debug)]
+// pub struct DiffieHellmanGroupSelectBody {
+//     pub group_id: VLU,
+// }
+// optionable!(
+//     DiffieHellmanGroupSelectBody,
+//     SessionKeyingOptionTypes::DiffieHellmanGroupSelect
+// );
+//
+// impl<W: Write> Encode<W> for DiffieHellmanGroupSelectBody {
+//     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
+//         self.group_id.encode()(w)
+//     }
+// }
 
-impl<W: Write> Encode<W> for DiffieHellmanGroupSelectBody {
-    fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        self.group_id.encode()(w)
-    }
-}
+//TODO: restore
+// #[derive(Debug)]
+// pub struct HMACNegotiationBody {
+//     /// [0:4] reserved
+//     /// [5] will send always
+//     /// [6] will send on request
+//     /// [6] request
+//     pub flags: u8,
+//     pub hmac_length: VLU,
+// }
+// optionable!(
+//     HMACNegotiationBody,
+//     SessionKeyingOptionTypes::HMACNegotiation
+// );
+//
+// impl<W: Write> Encode<W> for HMACNegotiationBody {
+//     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
+//         tuple((be_u8(self.flags), self.hmac_length.encode()))(w)
+//     }
+// }
 
-#[derive(Debug)]
-pub struct HMACNegotiationBody {
-    /// [0:4] reserved
-    /// [5] will send always
-    /// [6] will send on request
-    /// [6] request
-    pub flags: u8,
-    pub hmac_length: VLU,
-}
-optionable!(
-    HMACNegotiationBody,
-    SessionKeyingOptionTypes::HMACNegotiation
-);
-
-impl<W: Write> Encode<W> for HMACNegotiationBody {
-    fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        tuple((be_u8(self.flags), self.hmac_length.encode()))(w)
-    }
-}
-
-#[derive(Debug)]
-pub struct SessionSequenceNumberNegotiationBody {
-    /// [0:4] reserved
-    /// [5] will send always
-    /// [6] will send on request
-    /// [6] request
-    pub flags: u8,
-}
-optionable!(
-    SessionSequenceNumberNegotiationBody,
-    SessionKeyingOptionTypes::SessionSequenceNumberNegotiation
-);
-
-impl<W: Write> Encode<W> for SessionSequenceNumberNegotiationBody {
-    fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
-        tuple((be_u8(self.flags),))(w)
-    }
-}
+//TODO: revive
+// #[derive(Debug)]
+// pub struct SessionSequenceNumberNegotiationBody {
+//     /// [0:4] reserved
+//     /// [5] will send always
+//     /// [6] will send on request
+//     /// [6] request
+//     pub flags: u8,
+// }
+// optionable!(
+//     SessionSequenceNumberNegotiationBody,
+//     SessionKeyingOptionTypes::SessionSequenceNumberNegotiation
+// );
+//
+// impl<W: Write> Encode<W> for SessionSequenceNumberNegotiationBody {
+//     fn encode(&self, w: WriteContext<W>) -> GenResult<W> {
+//         tuple((be_u8(self.flags),))(w)
+//     }
+// }

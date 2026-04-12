@@ -6,6 +6,7 @@ use rtmfp::packet::{PacketFlag, PacketFlags, PacketMode};
 
 use rtmfp::rtmfp_stream::RTMFPStream;
 use rtmfp::{ChunkContent, Multiplex, Packet};
+use rtmfp::session_key_components::SessionKeyingComponent;
 
 fn main() {
     let stream = RTMFPStream::new_server();
@@ -46,6 +47,7 @@ fn main() {
                                 .into()],
                             },
                         },
+                        encryption_key: None,
                     };
 
                     stream.send(m, src);
@@ -66,12 +68,13 @@ fn main() {
                                 chunks: vec![ResponderInitialKeyingChunkBody {
                                     responder_session_id: 1,
                                     skrc_length: 0.into(),
-                                    session_key_responder_component: Vec::new(),
+                                    session_key_responder_component: SessionKeyingComponent::default(),
                                     signature: vec![88],
                                 }
                                 .into()],
                             },
                         },
+                        encryption_key: None,
                     };
 
                     stream.send(m, src);
