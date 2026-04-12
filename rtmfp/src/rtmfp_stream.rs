@@ -1,7 +1,7 @@
-use crate::Multiplex;
 use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
 use std::net::{SocketAddr, UdpSocket};
 use std::time::Duration;
+use crate::multiplex::Multiplex;
 
 pub struct RTMFPStream {
     pub socket: UdpSocket,

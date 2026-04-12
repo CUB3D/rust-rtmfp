@@ -73,7 +73,8 @@ impl From<RHelloChunkBody> for ChunkContent {
 #[cfg(test)]
 pub mod test {
     use crate::flash_certificate::FlashCertificate;
-    use crate::{Decode, RHelloChunkBody, StaticEncode};
+    use crate::{RHelloChunkBody, StaticEncode};
+    use crate::session_key_components::Decode;
 
     #[test]
     pub fn rhello_round_trip() {

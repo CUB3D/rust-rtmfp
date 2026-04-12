@@ -61,9 +61,9 @@ impl From<ResponderInitialKeyingChunkBody> for ChunkContent {
 
 #[cfg(test)]
 pub mod test {
-    use crate::session_key_components::SessionKeyingComponent;
-    use crate::{Decode, ResponderInitialKeyingChunkBody};
+    use crate::session_key_components::{Decode, SessionKeyingComponent};
     use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
+    use crate::chunk_rikeying::ResponderInitialKeyingChunkBody;
 
     #[test]
     pub fn rikeying_round_trip() {

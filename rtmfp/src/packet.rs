@@ -1,94 +1,99 @@
+use crate::chunk::Chunk;
+use crate::packet_flags::{PacketFlag, PacketFlags};
 use crate::session_key_components::Decode;
-use enumset::EnumSet;
-use nom::IResult;
 use parse::{GenerateBytes, SliceWriter};
-use std::convert::TryInto;
-
-#[derive(Debug, EnumSetType)]
-pub enum PacketFlag {
-    TimeCritical,
-    TimeCriticalReverse,
-    TimestampPresent,
-    TimestampEchoPresent,
-}
-
-#[repr(u8)]
-#[derive(Debug, TryFromPrimitive, Copy, Clone, Eq, PartialEq)]
-pub enum PacketMode {
-    Initiator = 1,
-    Responder = 2,
-    Startup = 3,
-}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct PacketFlags {
-    pub flags: EnumSet<PacketFlag>,
-    // pub reserved: u8,
-    pub mode: PacketMode,
+pub struct Packet {
+    pub flags: PacketFlags,
+    pub timestamp: Option<u16>,
+    pub timestamp_echo: Option<u16>,
+    pub chunks: Vec<Chunk>,
 }
-
-impl PacketFlags {
-    pub fn new(mode: PacketMode, flags: EnumSet<PacketFlag>) -> Self {
-        Self {
-            flags,
-            mode,
-            // reserved: 0
-        }
-    }
-}
-
-impl GenerateBytes for PacketFlags {
+impl GenerateBytes for Packet {
     fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
-        let mut flags = 0u8;
+        self.flags.generate(sw);
+        if let Some(ts) = self.timestamp {
+            sw.be_u16(ts);
+        }
+        if let Some(ts) = self.timestamp_echo {
+            sw.be_u16(ts);
+        }
+        sw.gen_many(self.chunks.as_slice());
+    }
+}
+impl Packet {
+    pub fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
+        let (i, flags) = PacketFlags::decode(i)?;
 
-        if self.flags.contains(PacketFlag::TimeCritical) {
-            flags |= 0b1000_0000;
+        let mut i = i;
+
+        let mut timestamp = None;
+        let mut timestamp_echo = None;
+
+        if flags.flags.contains(PacketFlag::TimestampPresent) {
+            let (j, ts) = nom::number::complete::be_u16(i)?;
+            timestamp = Some(ts);
+            i = j;
         }
 
-        if self.flags.contains(PacketFlag::TimeCriticalReverse) {
-            flags |= 0b0100_0000;
+        if flags.flags.contains(PacketFlag::TimestampEchoPresent) {
+            let (j, ts) = nom::number::complete::be_u16(i)?;
+            timestamp_echo = Some(ts);
+            i = j;
         }
 
-        if self.flags.contains(PacketFlag::TimestampPresent) {
-            flags |= 0b0000_1000;
+        println!("i = {:?}", i);
+
+        let (i, chunks) = nom::multi::many0(Chunk::decode)(i)?;
+
+        println!("chunks = {:?}", chunks);
+
+        if chunks.len() > 1 {
+            eprintln!(
+                "Did not expect more than one chunk, got: {:?}",
+                chunks.len()
+            )
         }
 
-        if self.flags.contains(PacketFlag::TimestampEchoPresent) {
-            flags |= 0b0000_0100;
-        }
-
-        let mode = self.mode as u8;
-        flags |= mode & 0b0000_0011;
-
-        sw.ne_u8(flags);
+        Ok((
+            i,
+            Self {
+                flags,
+                timestamp,
+                timestamp_echo,
+                chunks,
+            },
+        ))
     }
 }
 
-impl Decode for PacketFlags {
-    fn decode(i: &[u8]) -> IResult<&[u8], Self> {
-        let (i, packed_flags) = nom::number::complete::be_u8(i)?;
+#[cfg(test)]
+pub mod test {
+    use crate::packet_flags::{PacketFlag, PacketFlags, PacketMode};
+    use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
+    use crate::packet::Packet;
 
-        let mode: PacketMode = (packed_flags & 0b0000_0011).try_into().unwrap();
-        let mut flags = EnumSet::empty();
+    #[test]
+    pub fn packet_round_trip() {
+        let m = Packet {
+            flags: PacketFlags {
+                flags: PacketFlag::TimeCritical.into(),
+                mode: PacketMode::Initiator,
+            },
+            timestamp: None,
+            timestamp_echo: None,
+            chunks: Vec::new(),
+        };
 
-        if packed_flags & 0b1000_0000 != 0 {
-            flags |= PacketFlag::TimeCritical;
-        }
+        let mut sw = VecSliceWriter::default();
+        m.generate(&mut sw);
+        let (i, dec) = Packet::decode(sw.as_slice()).unwrap();
 
-        if packed_flags & 0b0100_0000 != 0 {
-            flags |= PacketFlag::TimeCriticalReverse;
-        }
+        println!("{:#?}", m);
+        println!("{:#?}", dec);
 
-        if packed_flags & 0b0000_1000 != 0 {
-            flags |= PacketFlag::TimestampPresent;
-        }
-
-        if packed_flags & 0b0000_0100 != 0 {
-            flags |= PacketFlag::TimestampEchoPresent;
-        }
-
-        let pf = Self { mode, flags };
-
-        Ok((i, pf))
+        assert_eq!(dec, m);
+        assert_eq!(i, &[]);
     }
 }

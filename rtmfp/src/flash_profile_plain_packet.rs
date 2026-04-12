@@ -1,6 +1,7 @@
 use crate::session_key_components::Decode;
-use crate::{checksum, Packet};
+use crate::{checksum};
 use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
+use crate::packet::Packet;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FlashProfilePlainPacket {
@@ -42,11 +43,10 @@ impl Decode for FlashProfilePlainPacket {
 
 #[cfg(test)]
 pub mod test {
-    use crate::packet::PacketMode;
-    use crate::{
-        Decode, FlashProfilePlainPacket, Packet, PacketFlag, PacketFlags
-        ,
-    };
+    use crate::flash_profile_plain_packet::FlashProfilePlainPacket;
+    use crate::packet::Packet;
+    use crate::packet_flags::{PacketFlag, PacketFlags, PacketMode};
+    use crate::session_key_components::Decode;
 
     #[test]
     pub fn flash_profiler_plain_packet_round_trip() {

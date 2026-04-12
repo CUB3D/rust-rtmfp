@@ -124,9 +124,9 @@ impl From<IIKeyingChunkBody> for ChunkContent {
 #[cfg(test)]
 pub mod test {
     use crate::flash_certificate::FlashCertificate;
-    use crate::{Decode, IIKeyingChunkBody};
+    use crate::{IIKeyingChunkBody};
     use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
-    use crate::session_key_components::SessionKeyingComponent;
+    use crate::session_key_components::{Decode, SessionKeyingComponent};
 
     #[test]
     pub fn iikeying_round_trip() {

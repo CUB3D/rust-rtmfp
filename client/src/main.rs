@@ -15,11 +15,13 @@ use rtmfp::encode::StaticEncode;
 use rtmfp::endpoint_discriminator::{AncillaryDataBody, EndpointDiscriminator};
 use rtmfp::flash_certificate::FlashCertificate;
 use rtmfp::flash_profile_plain_packet::FlashProfilePlainPacket;
-use rtmfp::packet::{PacketFlag, PacketFlags, PacketMode};
+use rtmfp::packet_flags::{PacketFlag, PacketFlags, PacketMode};
 use rtmfp::rtmfp_option::RTMFPOption;
 use rtmfp::rtmfp_stream::RTMFPStream;
 use rtmfp::session_key_components::{get_ephemeral_diffie_hellman_public_key, EphemeralDiffieHellmanPublicKeyBody, ExtraRandomnessBody, SessionKeyingComponent};
-use rtmfp::{IHelloChunkBody, IIKeyingChunkBody, Multiplex, Packet};
+use rtmfp::{IHelloChunkBody, IIKeyingChunkBody};
+use rtmfp::multiplex::Multiplex;
+use rtmfp::packet::Packet;
 
 mod tui_ {
     use crossterm::event::{Event, KeyCode};

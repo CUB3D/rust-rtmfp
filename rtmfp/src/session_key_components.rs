@@ -4,7 +4,7 @@ use crate::vlu::VLU;
 use crate::OptionType;
 use crate::RTMFPOption;
 use nom::IResult;
-use parse::{take_all, GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
+use parse::{take_until, GenerateBytes, ParseBytes, SliceWriter, Take, VecSliceWriter};
 
 pub trait Decode: Sized {
     fn decode(i: &[u8]) -> IResult<&[u8], Self>;
@@ -29,9 +29,15 @@ impl ParseBytes<'_> for SessionKeyingComponent {
     where
         Self: Sized
     {
-        let x = take_all::<_, RtmfpError, _>(i, |i| {
-            let (i, x) = RTMFPOption::parse(i)?;
-            Ok((i, x))
+        let (_, x) = take_until::<_, RtmfpError, _>(i, |i| {
+            let p = RTMFPOption::parse(i);
+            match p {
+                Ok((i, x)) => {
+                    Ok((i, Take::More(x)))
+                }
+                Err(e) => Ok((&[], Take::End)),
+            }
+
         })?;
         Ok((&[], Self(x)))
     }
