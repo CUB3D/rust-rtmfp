@@ -8,3 +8,4 @@ edition = "2024"
 
 [dependencies]
 rtmfp = { path = "../rtmfp" }
+anyhow = "1.0.102"

@@ -29,13 +29,14 @@ impl ParseBytes<'_> for SessionKeyingComponent {
     where
         Self: Sized
     {
+        //TODO: handle trailing data
         let (_, x) = take_until::<_, RtmfpError, _>(i, |i| {
             let p = RTMFPOption::parse(i);
             match p {
                 Ok((i, x)) => {
                     Ok((i, Take::More(x)))
                 }
-                Err(e) => Ok((&[], Take::End)),
+                Err(_) => Ok((&[], Take::End)),
             }
 
         })?;

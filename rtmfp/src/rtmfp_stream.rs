@@ -1,43 +1,47 @@
+use std::io;
 use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::time::Duration;
 use crate::multiplex::Multiplex;
 
+const DEFAULT_ENCRYPTION_KEY: &'static [u8] = b"Adobe Systems 02";
+
 pub struct RTMFPStream {
     pub socket: UdpSocket,
+    //TODO: vec?
     encryption_key: Option<Vec<u8>>,
+    //TODO: pub
     pub decryption_key: Vec<u8>,
 }
 
 impl RTMFPStream {
-    pub fn new_server() -> Self {
-        let socket = UdpSocket::bind("127.0.0.1:1935").unwrap();
+    pub fn new_server<A: ToSocketAddrs>(host: A) -> io::Result<Self> {
+        let socket = UdpSocket::bind(host)?;
 
-        Self {
+        Ok(Self {
             socket,
-            encryption_key: Some(b"Adobe Systems 02".to_vec()),
-            decryption_key: b"Adobe Systems 02".to_vec(),
-        }
+            encryption_key: Some(DEFAULT_ENCRYPTION_KEY.to_vec()),
+            decryption_key: DEFAULT_ENCRYPTION_KEY.to_vec(),
+        })
     }
 
-    pub fn new_client() -> Self {
-        let socket = UdpSocket::bind("127.0.0.1:20202").unwrap();
+    pub fn connect<A: ToSocketAddrs>(local: A, srv: A) -> io::Result<Self> {
+        let socket = UdpSocket::bind(local)?;
 
-        socket.connect("127.0.0.1:1935").unwrap();
+        socket.connect(srv)?;
 
-        Self {
+        Ok(Self {
             socket,
-            encryption_key: Some(b"Adobe Systems 02".to_vec()),
-            decryption_key: b"Adobe Systems 02".to_vec(),
-        }
+            encryption_key: Some(DEFAULT_ENCRYPTION_KEY.to_vec()),
+            decryption_key: DEFAULT_ENCRYPTION_KEY.to_vec(),
+        })
     }
 
-    pub fn send(&self, mut m: Multiplex, dest: SocketAddr) {
+    pub fn send(&self, mut m: Multiplex) {
         let mut sw = VecSliceWriter::default();
         m.encryption_key = self.encryption_key.clone();
         m.generate(&mut sw);
         println!("Send = {:X?}", sw.as_slice());
-        // self.socket.send_to(&bytes, dest).unwrap();
         self.socket.send(sw.as_slice()).unwrap();
     }
 

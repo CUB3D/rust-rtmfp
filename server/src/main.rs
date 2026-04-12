@@ -10,11 +10,11 @@ use rtmfp::multiplex::Multiplex;
 use rtmfp::packet::Packet;
 use rtmfp::session_key_components::SessionKeyingComponent;
 
-fn main() {
-    let stream = RTMFPStream::new_server();
+fn main() -> anyhow::Result<()> {
+    let stream = RTMFPStream::new_server("127.0.0.1:1935")?;
 
     loop {
-        if let Some((packet, src)) = stream.read() {
+        if let Some((packet, _src)) = stream.read() {
             println!("Got packet: {:?}", packet);
 
             let chunk = packet.packet.packet.chunks.first().unwrap();
@@ -52,7 +52,7 @@ fn main() {
                         encryption_key: None,
                     };
 
-                    stream.send(m, src);
+                    stream.send(m);
                 }
                 ChunkContent::IIKeying(_body) => {
                     let m = Multiplex {
@@ -79,7 +79,7 @@ fn main() {
                         encryption_key: None,
                     };
 
-                    stream.send(m, src);
+                    stream.send(m);
                 }
                 _ => {}
             }

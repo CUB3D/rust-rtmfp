@@ -40,8 +40,7 @@ pub mod chunk_rikeying;
 pub mod chunk_session_close_acknowledgement;
 pub mod chunk_session_close_request;
 pub mod chunk_user_data;
-//TODO: restore
-// pub mod connection_state_machine;
+pub mod connection_state_machine;
 pub mod encode;
 pub mod endpoint_discriminator;
 pub mod flash_certificate;
