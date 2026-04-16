@@ -5,7 +5,7 @@ use crate::session_key_components::Decode;
 
 use crate::ChunkContent;
 use nom::IResult;
-use parse::{GenerateBytes, SliceWriter, VecSliceWriter};
+use parse::{GenerateBytes, ParseBytes, SliceWriter, VecSliceWriter};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RHelloChunkBody {
@@ -29,7 +29,7 @@ impl Decode for RHelloChunkBody {
 
         // let cropped = j&j[..cert_len];
         let cropped = j;
-        let (_cropped_rem, certificate) = FlashCertificate::decode(cropped)?;
+        let (_cropped_rem, certificate) = FlashCertificate::parse(cropped)?;
         // let j = &j[cert_len..];
 
         Ok((

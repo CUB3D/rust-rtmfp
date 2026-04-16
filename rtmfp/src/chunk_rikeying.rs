@@ -35,7 +35,7 @@ impl GenerateBytes for ResponderInitialKeyingChunkBody {
 impl Decode for ResponderInitialKeyingChunkBody {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
         let (i, responder_session_id) = nom::number::complete::be_u32(i)?;
-        let (i, skrc_length) = VLU::decode(i)?;
+        let (i, skrc_length) = VLU::parse(i)?;
 
         let _skrc_bytes = &i[..skrc_length.value as usize];
         //TODO: should this not be skrc_bytes not i

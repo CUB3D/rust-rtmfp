@@ -17,6 +17,12 @@ pub enum RTMFPOption {
     },
 }
 
+impl RTMFPOption {
+    pub fn from_type_and_slice(type_: VLU, slice: &[u8]) -> Self {
+        Self::Option {type_, value: slice.to_vec(), length: VLU::from(type_.length as usize + slice.len())}
+    }
+}
+
 impl GenerateBytes for RTMFPOption {
     fn generate<'b>(&'b self, sw: &'b mut impl SliceWriter) {
         match self {
@@ -58,12 +64,12 @@ impl ParseBytes<'_> for RTMFPOption {
 
 impl Decode for RTMFPOption {
     fn decode(i: &[u8]) -> nom::IResult<&[u8], Self> {
-        let (i, length) = VLU::decode(i)?;
+        let (i, length) = VLU::parse(i)?;
 
         if length.value == 0 {
             Ok((i, RTMFPOption::Marker))
         } else {
-            let (i, type_) = VLU::decode(i)?;
+            let (i, type_) = VLU::parse(i)?;
             let (i, value) = nom::bytes::complete::take(length.value - type_.length as u64)(i)?;
             Ok((
                 i,

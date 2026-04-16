@@ -148,6 +148,8 @@ fn main() -> std::io::Result<()> {
                 //TOOD: handle other pkt types
                 let (m2, _srv) = stream.read().expect("m2");
 
+                println!("{:?}", m2);
+
                 let rec_body = m2
                     .packet
                     .packet

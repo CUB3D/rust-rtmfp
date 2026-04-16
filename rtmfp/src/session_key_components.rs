@@ -144,7 +144,7 @@ impl OptionType for EphemeralDiffieHellmanPublicKeyBody {
 // }
 impl Decode for EphemeralDiffieHellmanPublicKeyBody {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
-        let (i, group_id) = VLU::decode(i)?;
+        let (i, group_id) = VLU::parse(i)?;
         let public_key = i.to_vec();
 
         Ok((

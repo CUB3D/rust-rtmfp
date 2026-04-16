@@ -27,7 +27,9 @@ impl IIKeyingChunkBody {
         certificate: FlashCertificate,
         skic: SessionKeyingComponent,
     ) -> Self {
-        let cert_size = certificate.encode_static().len();
+        let mut sw2 = VecSliceWriter::default();
+        certificate.generate(&mut sw2);
+        let cert_size = sw2.as_slice().len();
         let skic_length = skic.encode_static().len();
 
         Self {
@@ -82,16 +84,16 @@ impl GenerateBytes for IIKeyingChunkBody {
 impl Decode for IIKeyingChunkBody {
     fn decode(i: &[u8]) -> IResult<&[u8], Self> {
         let (i, initiator_session_id) = nom::number::complete::be_u32(i)?;
-        let (i, cookie_length) = VLU::decode(i)?;
+        let (i, cookie_length) = VLU::parse(i)?;
         let cookie = &i[..cookie_length.value as usize];
 
         let i = &i[cookie_length.value as usize..];
-        let (i, cert_length) = VLU::decode(i)?;
+        let (i, cert_length) = VLU::parse(i)?;
         let cert_data = &i[..cert_length.value as usize];
-        let (_cert_rem, initiator_certificate) = FlashCertificate::decode(cert_data)?;
+        let (_cert_rem, initiator_certificate) = FlashCertificate::parse(cert_data)?;
 
         let i = &i[cert_length.value as usize..];
-        let (i, skic_length) = VLU::decode(i)?;
+        let (i, skic_length) = VLU::parse(i)?;
         let skic_data = &i[..skic_length.value as usize];
         let (_skik_rem, session_key_initiator_component) =
             SessionKeyingComponent::parse(skic_data)?;
